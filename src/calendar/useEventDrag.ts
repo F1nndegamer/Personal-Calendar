@@ -15,6 +15,12 @@ export interface DragState {
    *  block keeps its grab offset and stays exactly under the mouse */
   grabOffsetMin: number;
   moved: boolean;
+  /** Touch only: timestamp before which the drag stays dormant. A flick
+   *  releases the drag (the page scrolls instead); holding still past the
+   *  timestamp activates it (long-press to drag). Mouse drags omit this. */
+  activateAt?: number;
+  /** pointer X at drag start — used to detect flicks during the dormant window */
+  startX?: number;
 }
 
 export interface DraftTimes {
@@ -93,6 +99,20 @@ export function useEventDrag(options: {
     };
 
     const onMove = (e: PointerEvent) => {
+      // Touch: dormant until the long-press timer fires (hold still). A
+      // flick during the dormant window releases the drag so the browser
+      // scrolls normally. Mouse input is active immediately.
+      if (drag.activateAt !== undefined && !drag.moved) {
+        if (Date.now() < drag.activateAt) {
+          if (
+            Math.abs(e.clientY - drag.startY) > 8 ||
+            Math.abs(e.clientX - (drag.startX ?? drag.startY)) > 8
+          ) {
+            setDrag(null);
+          }
+          return;
+        }
+      }
       if (!drag.moved && Math.abs(e.clientY - drag.startY) > 3) {
         setDrag({ ...drag, moved: true });
         return;
@@ -123,6 +143,18 @@ export function useEventDrag(options: {
       }
     };
 
+    // Interrupted gesture (browser takes over scrolling etc.): drop the draft
+    // without committing anything, mirroring a plain pointer-up with no move.
+    const onCancel = () => {
+      movedRef.current = false;
+      if (rafId !== 0) {
+        cancelAnimationFrame(rafId);
+        rafId = 0;
+      }
+      setDrag(null);
+      setDraft(null);
+    };
+
     const onUp = (e: PointerEvent) => {
       movedRef.current = drag.moved;
       if (rafId !== 0) {
@@ -145,9 +177,11 @@ export function useEventDrag(options: {
 
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onCancel);
     return () => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onCancel);
       if (rafId !== 0) {
         cancelAnimationFrame(rafId);
         rafId = 0;
@@ -167,14 +201,19 @@ export function useEventDrag(options: {
       const pointerMin = ((e.clientY - (bodyRect?.top ?? 0)) / (bodyRect?.height ?? 1)) * 24 * 60;
       const grabOffsetMin =
         mode === 'move' ? clamp(pointerMin - origStartMin, 0, origEndMin - origStartMin) : 0;
+      const isTouch = e.pointerType === 'touch';
       setDrag({
         id: event.id,
         mode,
         startY: e.clientY,
+        startX: e.clientX,
         origStartMin,
         origEndMin,
         grabOffsetMin,
         moved: false,
+        // Touch requires a short long-press (or keeping still) before the
+        // drag activates, so tap-and-scroll gestures don't move events.
+        activateAt: isTouch ? Date.now() + 600 : undefined,
       });
     },
     [bodyRectRef],

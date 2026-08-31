@@ -12,6 +12,13 @@ interface Props {
   onTaskDragEnd: () => void;
 }
 
+function isOverdue(task: Task): boolean {
+  if (task.completed || !task.dueDate) return false;
+  const due = new Date(task.dueDate);
+  const now = new Date();
+  return due < now;
+}
+
 function formatDue(dateStr: string): string {
   const d = new Date(dateStr);
   const today = new Date();
@@ -20,7 +27,10 @@ function formatDue(dateStr: string): string {
   const tomorrow = new Date(today);
   tomorrow.setDate(today.getDate() + 1);
   if (isSameDay(d, tomorrow)) return `Tomorrow ${time}`;
-  return `${d.toLocaleDateString([], { day: 'numeric', month: 'short' })} ${time}`;
+  // If the time is midnight, the user specified only a date (no time)
+  const hasTime = d.getHours() !== 0 || d.getMinutes() !== 0;
+  const label = d.toLocaleDateString([], { day: 'numeric', month: 'short' });
+  return hasTime ? `${label} ${time}` : label;
 }
 
 export function TaskPanel({ tasks, onToggle, onTaskClick, onNewTask, onTaskDragStart, onTaskDragEnd }: Props) {
@@ -42,12 +52,13 @@ export function TaskPanel({ tasks, onToggle, onTaskClick, onNewTask, onTaskDragS
     };
   }, [tasks]);
 
-  const renderTask = (task: Task) => {
+    const renderTask = (task: Task) => {
     const doneSubs = task.subtasks.filter((s) => s.completed).length;
+    const overdue = isOverdue(task);
     return (
       <div
         key={task.id}
-        className={`task-card${task.completed ? ' completed' : ''}${task.eventId ? ' scheduled' : ''}`}
+        className={`task-card${task.completed ? ' completed' : ''}${task.eventId ? ' scheduled' : ''}${overdue ? ' overdue' : ''}`}
         draggable
         onDragStart={(e) => onTaskDragStart(task, e)}
         onDragEnd={onTaskDragEnd}
@@ -68,7 +79,11 @@ export function TaskPanel({ tasks, onToggle, onTaskClick, onNewTask, onTaskDragS
           <div className="task-meta">
             <span className={`task-priority prio-${task.priority}`} title={`${task.priority} priority`} />
             {task.category && <span className="task-category">{task.category}</span>}
-            {task.dueDate && <span className="task-due">{formatDue(task.dueDate)}</span>}
+                                    {task.dueDate && (
+              <span className={`task-due${overdue ? ' overdue' : ''}`}>
+                {formatDue(task.dueDate)}{overdue && <span className="task-overdue-badge">OVERDUE</span>}
+              </span>
+            )}
             {task.estimatedMinutes && <span className="task-estimate">{task.estimatedMinutes}m</span>}
             {task.subtasks.length > 0 && (
               <span className="task-subcount">{doneSubs}/{task.subtasks.length}</span>

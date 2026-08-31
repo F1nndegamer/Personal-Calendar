@@ -3,13 +3,12 @@
  * `CalendarEvent`s via the `ScheduleProvider` interface — it knows nothing
  * about any specific provider (e.g. Magister).
  */
-import { mockMagisterProvider } from './mockMagisterProvider';
 import { createMagisterProvider } from './magisterProvider';
 import type { ScheduleProvider } from './types';
 
 export * from './types';
 export * from './sync';
-export { mockMagisterProvider, normalizeExternalEvent } from './mockMagisterProvider';
+export { normalizeExternalEvent } from './normalizeExternalEvent';
 export { createMagisterProvider } from './magisterProvider';
 export type { MagisterProviderConfig } from './magisterProvider';
 export { normalizeFeedUrl, buildRequestUrl } from './webcal';
@@ -23,19 +22,21 @@ export { normalizeFeedUrl, buildRequestUrl } from './webcal';
  * - `VITE_SCHEDULE_PROXY_URL`: optional backend proxy that performs the
  *   server-side fetch of the feed.
  *
- * Falls back to the built-in mock provider when no feed is configured, so
- * the app keeps working in development/demo mode.
+ * Returns `null` when no feed is configured — syncing is then unavailable
+ * until a real feed URL is provided.
  */
-export function resolveScheduleProvider(): ScheduleProvider {
+export function resolveScheduleProvider(): ScheduleProvider | null {
   return getScheduleProviderInfo().provider;
 }
 
 /**
  * Like `resolveScheduleProvider`, but also reports whether a real feed is
- * configured. Used to decide whether automatic/manual syncing should run —
- * syncing the mock provider would be pointless.
+ * configured. Used to decide whether automatic/manual syncing should run.
  */
-export function getScheduleProviderInfo(): { provider: ScheduleProvider; configured: boolean } {
+export function getScheduleProviderInfo(): {
+  provider: ScheduleProvider | null;
+  configured: boolean;
+} {
   const feedUrl = import.meta.env.VITE_MAGISTER_FEED_URL as string | undefined;
   if (feedUrl && feedUrl.trim().length > 0) {
     return {
@@ -46,5 +47,5 @@ export function getScheduleProviderInfo(): { provider: ScheduleProvider; configu
       configured: true,
     };
   }
-  return { provider: mockMagisterProvider, configured: false };
+  return { provider: null, configured: false };
 }

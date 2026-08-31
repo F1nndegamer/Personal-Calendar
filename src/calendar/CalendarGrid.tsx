@@ -176,6 +176,7 @@ export function CalendarGrid({ days, events, now, onEventChange, onEventClick, o
                         left={column * widthPct}
                         width={widthPct}
                         dragging={isDragging}
+                        isLocked={event.source === 'external'}
                         onPointerDown={(mode, e) => beginDrag(event, mode, e)}
                         onClick={() => {
                           if (!movedRef.current) onEventClick(event);

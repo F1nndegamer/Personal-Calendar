@@ -1,5 +1,5 @@
 import type { CalendarEvent } from '../calendar/types';
-import { normalizeExternalEvent } from './mockMagisterProvider';
+import { normalizeExternalEvent } from './normalizeExternalEvent';
 import {
   externalKey,
   type ExternalScheduleEvent,

@@ -15,6 +15,8 @@ interface Props {
   syncState?: SyncState;
   syncConfigured?: boolean;
   onSync?: () => void;
+  /** Phone layout hint (from the app's single media query listener) */
+  isMobile?: boolean;
 }
 
 function syncTitle(state: SyncState | undefined, lastSyncAt: string | undefined): string {
@@ -38,6 +40,7 @@ export function CalendarToolbar({
   syncState,
   syncConfigured,
   onSync,
+  isMobile,
 }: Props) {
   const inRange = days.some((d) => isSameDay(d, today));
   const label =
@@ -55,7 +58,7 @@ export function CalendarToolbar({
     <div className="toolbar">
       <div className="toolbar-left">
         <h1 className="app-title">Calendar</h1>
-        <button className="btn" onClick={onToday} disabled={inRange}>
+        <button className="btn today-btn" onClick={onToday} disabled={inRange}>
           Today
         </button>
         <div className="nav-group">
@@ -69,6 +72,9 @@ export function CalendarToolbar({
         <span className="range-label">{label}</span>
       </div>
       <div className="toolbar-right">
+        <span className="toolbar-date" aria-hidden={!isMobile}>
+          {label}
+        </span>
         {showSync && (
           <button
             className={`sync-btn${syncState?.status === 'error' ? ' error' : ''}`}

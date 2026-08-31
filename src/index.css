@@ -86,6 +86,39 @@ button {
   overflow: hidden;
 }
 
+/*
+ * Desktop/tablet: the pane wrapper mirrors the row layout that the old
+ * .app.with-tasks used directly (task panel left, calendar right). On
+ * phones (.mobile) the wrapper switches to a column with the tab bar.
+ */
+.mobile-panes {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
+.mobile-panes > .tasks-pane {
+  width: 300px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.mobile-panes > .tasks-pane .task-panel {
+  flex: 1;
+  width: 100%;
+}
+
+.mobile-panes > .calendar-pane {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
 /* ---------- Toolbar ---------- */
 
 .toolbar {
@@ -422,6 +455,12 @@ button {
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.7);
 }
 
+.event-block.locked {
+  cursor: default;
+  opacity: 0.8;
+  border-left-color: var(--muted);
+}
+
 .event-title {
   font-size: 12px;
   font-weight: 600;
@@ -642,7 +681,7 @@ input[type='time'] {
 
 /* ---------- Responsive ---------- */
 
-@media (max-width: 720px) {
+@media (min-width: 701px) and (max-width: 720px) {
   .range-label,
   .app-title,
   .header-day {
@@ -656,7 +695,9 @@ input[type='time'] {
 /* ---------- App layout with task panel ---------- */
 
 .app.with-tasks {
-  flex-direction: row;
+  /* The pane wrapper (.mobile-panes) owns the desktop row layout; this just
+     keeps the app columnar so the pane wrapper fills the height. */
+  flex-direction: column;
 }
 
 .task-panel {
@@ -936,16 +977,383 @@ input[type='time'] {
   border-color: var(--accent);
 }
 
-/* ---------- Responsive: task panel ---------- */
+/* ---------- Toasts ---------- */
 
-@media (max-width: 900px) {
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%);
+  background: var(--surface-raised);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 9px 16px;
+  font-size: 13px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+  z-index: 120;
+  pointer-events: none;
+  animation: toast-in 0.18s ease-out;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+/* ---------- Tablet: keep calendar+tasks side by side, slightly tighter ---------- */
+
+@media (min-width: 701px) and (max-width: 1024px) {
   .app.with-tasks {
     flex-direction: column;
   }
+  .mobile-panes > .tasks-pane {
+    width: 280px;
+  }
   .task-panel {
     width: 100%;
-    max-height: 40vh;
+    max-height: none;
+  }
+  .toolbar-left .range-label {
+    white-space: normal;
+  }
+}
+
+/* ---------- Phone / small mobile (< 700px) ---------- */
+
+@media (max-width: 700px) {
+  :root {
+    --sat: env(safe-area-inset-top, 0px);
+    --sab: env(safe-area-inset-bottom, 0px);
+    --sal: env(safe-area-inset-left, 0px);
+    --sar: env(safe-area-inset-right, 0px);
+  }
+
+  html,
+  body {
+    overflow: hidden;
+    overscroll-behavior: none;
+    width: 100%;
+    height: 100%;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .app.mobile.with-tasks {
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+  }
+
+  .mobile-panes {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .mobile-panes > .calendar-pane,
+  .mobile-panes > .tasks-pane {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .mobile-panes > .calendar-pane.pane-hidden,
+  .mobile-panes > .tasks-pane.pane-hidden {
+    display: none;
+  }
+
+  .mobile-panes > .tasks-pane {
+    background: var(--bg);
+  }
+
+  .task-panel {
+    width: 100%;
+    max-height: none;
     border-right: none;
+    border-bottom: none;
+    flex: 1;
+    min-height: 0;
+  }
+}
+
+@media (max-width: 700px) {
+  /* Bottom tab bar */
+  .mobile-nav {
+    flex-shrink: 0;
+    display: flex;
+    border-top: 1px solid var(--border-subtle);
+    background: var(--bg);
+    padding-bottom: var(--sab);
+    padding-left: var(--sal);
+    padding-right: var(--sar);
+  }
+
+  .mobile-nav-btn {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 13px 8px;
+    font-size: 13px;
+    color: var(--text-secondary);
+    background: transparent;
+    border: none;
+    transition: color 0.12s, background 0.12s;
+  }
+
+  .mobile-nav-btn.active {
+    color: var(--accent);
+    background: var(--accent-muted);
+  }
+
+  .mobile-nav-btn:active {
+    background: var(--surface-hover);
+  }
+
+  /* Toolbar: nav row + date row, no horizontal overflow */
+  .app.mobile .toolbar {
+    flex-wrap: wrap;
+    gap: 6px 10px;
+    padding-top: calc(10px + 4px);
+    padding-bottom: 8px;
+    padding-left: calc(12px + var(--sal));
+    padding-right: calc(12px + var(--sar));
     border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .app.mobile .toolbar-left {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .app.mobile .toolbar-right {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .app.mobile .toolbar .nav-group {
+    margin-left: auto;
+  }
+
+  .app.mobile .toolbar .range-label {
+    display: none;
+  }
+
+  .app.mobile .toolbar .toolbar-date {
+    font-size: 13px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .toolbar-date[aria-hidden='true'] {
+    display: none;
+  }
+
+  .app.mobile .icon-btn {
+    width: 38px;
+    height: 38px;
+    border-radius: 8px;
+  }
+
+  .app.mobile .app-title {
+    font-size: 15px;
+  }
+
+  .app.mobile .view-toggle .view-btn {
+    padding: 8px 14px;
+    font-size: 13px;
+  }
+
+  .app.mobile .sync-btn {
+    padding: 8px 12px;
+    margin-right: 0;
+  }
+
+  .app.mobile .btn,
+  .app.mobile .sync-btn {
+    min-height: 38px;
+  }
+}
+@media (max-width: 700px) {
+  /* Calendar: single-day full-width by default; week view scrolls sideways */
+  .app.mobile .grid-scroll {
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .app.mobile .grid-scroll::-webkit-scrollbar {
+    display: none;
+  }
+
+  .app.mobile .grid-inner {
+    min-width: 0;
+  }
+
+  /* Single day fills the width. Week keeps the existing multi-column grid
+     (min-width 640px) but scrolls horizontally instead of squashing it. */
+  .app.mobile.view-day .grid-days .grid-day {
+    flex-basis: 100%;
+    min-width: 100%;
+  }
+  .app.mobile.view-week .grid-inner {
+    min-width: 640px;
+  }
+  .app.mobile.view-week .grid-scroll {
+    overflow-x: auto;
+  }
+
+  .app.mobile .grid-header {
+    padding-left: 46px !important;
+  }
+
+  .app.mobile .grid-header-cell {
+    justify-content: flex-start;
+    padding-left: 12px;
+    gap: 8px;
+  }
+  .app.mobile .grid-header-cell .header-day {
+    font-size: 12px;
+  }
+  .app.mobile .grid-header-cell .header-number {
+    font-size: 16px;
+  }
+
+.app.mobile .grid-times {
+    width: 46px !important;
+  }
+  .app.mobile .grid-hour-label span {
+    right: 5px;
+    font-size: 10px;
+  }
+
+  /* Events: readable on a phone, still touch-draggable via long-press */
+  .app.mobile .event-block {
+    touch-action: pan-y;
+  }
+  .app.mobile .event-block:hover {
+    filter: none;
+  }
+  .app.mobile .event-title {
+    font-size: 13px;
+  }
+  .app.mobile .event-time {
+    font-size: 11px;
+  }
+  .app.mobile .event-description {
+    font-size: 11px;
+  }
+  .app.mobile .event-resize-handle {
+    height: 12px;
+  }
+
+  /* Task cards: bigger touch targets, more breathing room */
+  .app.mobile .task-card {
+    padding: 12px 12px;
+    gap: 11px;
+  }
+  .app.mobile .task-card .task-title {
+    font-size: 14px;
+  }
+  .app.mobile .task-card .task-meta {
+    font-size: 12px;
+  }
+  .app.mobile .task-check {
+    width: 20px;
+    height: 20px;
+  }
+  .app.mobile .task-new-btn {
+    padding: 8px 12px;
+  }
+  .app.mobile .task-panel-header {
+    padding: 12px 14px;
+  }
+  .app.mobile .task-list {
+    padding: 12px;
+    padding-bottom: calc(12px + var(--sab));
+  }
+
+  /* Desktop-only "drag a task onto the calendar" hint is hidden on phones */
+  .app.mobile .task-panel-footer {
+    display: none;
+  }
+}
+@media (max-width: 700px) {
+  /* Dialogs: nearly-full-width bottom sheets, safe-area aware */
+  .app.mobile .dialog-backdrop {
+    align-items: flex-end;
+    padding: 0;
+  }
+  .app.mobile .dialog {
+    width: 100%;
+    max-width: 100%;
+    max-height: 100svh;
+    border-radius: 16px 16px 0 0;
+    padding: 18px 18px calc(16px + var(--sab));
+  }
+  .app.mobile .quickadd-dialog {
+    max-width: 100%;
+  }
+
+  /* Toast: sits above the tab bar */
+  .toast {
+    position: fixed;
+    left: 50%;
+    bottom: calc(72px + var(--sab));
+    transform: translateX(-50%);
+    background: var(--surface-raised);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 9px 16px;
+    font-size: 13px;
+    z-index: 100;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+    pointer-events: none;
+  }
+}
+@media (max-width: 700px) {
+  /* Mobile-only Quick Add floating button, positioned above the tab bar */
+  .app.mobile .mobile-fab {
+    position: fixed;
+    right: calc(18px + var(--sar));
+    bottom: calc(76px + var(--sab));
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #000;
+    font-size: 28px;
+    line-height: 1;
+    border: none;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 60;
+  }
+  .app.mobile .mobile-fab:active {
+    background: #93a4ff;
   }
 }

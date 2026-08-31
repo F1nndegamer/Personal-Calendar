@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseIcs } from '../icsParser';
-import { normalizeExternalEvent } from '../mockMagisterProvider';
+import { normalizeExternalEvent } from '../normalizeExternalEvent';
 import { createMagisterProvider } from '../magisterProvider';
 import { buildRequestUrl, normalizeFeedUrl } from '../webcal';
 import { syncExternalEvents } from '../sync';

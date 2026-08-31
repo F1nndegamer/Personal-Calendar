@@ -8,6 +8,7 @@ interface Props {
   /** Event being edited, or partial event for a new one */
   event: CalendarEvent;
   isNew: boolean;
+  readOnly?: boolean;
   onSave: (event: CalendarEvent) => void;
   onDelete?: (id: string) => void;
   onClose: () => void;
@@ -18,7 +19,7 @@ function toInputValue(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-export function EventDialog({ event, isNew, onSave, onDelete, onClose }: Props) {
+export function EventDialog({ event, isNew, readOnly, onSave, onDelete, onClose }: Props) {
   const [draft, setDraft] = useState(event);
 
   useEffect(() => {
@@ -53,6 +54,7 @@ export function EventDialog({ event, isNew, onSave, onDelete, onClose }: Props) 
           <span>Title</span>
           <input
             autoFocus
+            readOnly={readOnly}
             value={draft.title}
             onChange={(e) => set({ title: e.target.value })}
             placeholder="Event title"
@@ -64,8 +66,10 @@ export function EventDialog({ event, isNew, onSave, onDelete, onClose }: Props) 
             <span>Date</span>
             <input
               type="date"
+              readOnly={readOnly}
               value={toInputValue(startOfDay(start)).slice(0, 10)}
               onChange={(e) => {
+                if (readOnly) return;
                 const [y, m, d] = e.target.value.split('-').map(Number);
                 const next = new Date(start);
                 next.setFullYear(y, m - 1, d);
@@ -79,8 +83,10 @@ export function EventDialog({ event, isNew, onSave, onDelete, onClose }: Props) 
             <span>Start</span>
             <input
               type="time"
+              readOnly={readOnly}
               value={toInputValue(start).slice(11)}
               onChange={(e) => {
+                if (readOnly) return;
                 const [h, min] = e.target.value.split(':').map(Number);
                 const next = new Date(start);
                 next.setHours(h, min);
@@ -92,8 +98,10 @@ export function EventDialog({ event, isNew, onSave, onDelete, onClose }: Props) 
             <span>End</span>
             <input
               type="time"
+              readOnly={readOnly}
               value={toInputValue(end).slice(11)}
               onChange={(e) => {
+                if (readOnly) return;
                 const [h, min] = e.target.value.split(':').map(Number);
                 const next = new Date(end);
                 next.setHours(h, min);
@@ -106,6 +114,7 @@ export function EventDialog({ event, isNew, onSave, onDelete, onClose }: Props) 
         <label className="field">
           <span>Category</span>
           <input
+            readOnly={readOnly}
             value={draft.category ?? ''}
             onChange={(e) => set({ category: e.target.value })}
             placeholder="e.g. School, Work"
@@ -116,6 +125,7 @@ export function EventDialog({ event, isNew, onSave, onDelete, onClose }: Props) 
           <span>Description</span>
           <textarea
             rows={3}
+            readOnly={readOnly}
             value={draft.description ?? ''}
             onChange={(e) => set({ description: e.target.value })}
             placeholder="Notes…"

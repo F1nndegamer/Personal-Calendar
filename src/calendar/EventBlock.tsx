@@ -9,20 +9,22 @@ interface Props {
   left: number;
   width: number;
   dragging: boolean;
+  /** When true the event cannot be moved or resized (e.g. imported from a schedule) */
+  isLocked: boolean;
   onPointerDown: (mode: 'move' | 'resize', e: React.PointerEvent) => void;
   onClick: () => void;
 }
 
-function EventBlockImpl({ event, top, height, left, width, dragging, onPointerDown, onClick }: Props) {
+function EventBlockImpl({ event, top, height, left, width, dragging, isLocked, onPointerDown, onClick }: Props) {
   const start = new Date(event.start);
   const end = new Date(event.end);
   const compact = height < 36;
 
   return (
     <div
-      className={`event-block color-${event.color}${dragging ? ' dragging' : ''}`}
+      className={`event-block color-${event.color}${dragging ? ' dragging' : ''}${isLocked ? ' locked' : ''}`}
       style={{ top, height, left: `${left}%`, width: `${width}%` }}
-      onPointerDown={(e) => onPointerDown('move', e)}
+      onPointerDown={isLocked ? undefined : (e) => onPointerDown('move', e)}
       onClick={onClick}
     >
       <div className="event-title">{event.title}</div>
@@ -37,10 +39,12 @@ function EventBlockImpl({ event, top, height, left, width, dragging, onPointerDo
       {!compact && height > 60 && event.description && (
         <div className="event-description">{event.description}</div>
       )}
-      <div
-        className="event-resize-handle"
-        onPointerDown={(e) => onPointerDown('resize', e)}
-      />
+      {!isLocked && (
+        <div
+          className="event-resize-handle"
+          onPointerDown={(e) => onPointerDown('resize', e)}
+        />
+      )}
     </div>
   );
 }
@@ -58,5 +62,6 @@ export const EventBlock = memo(
     a.height === b.height &&
     a.left === b.left &&
     a.width === b.width &&
-    a.dragging === b.dragging,
+    a.dragging === b.dragging &&
+    a.isLocked === b.isLocked,
 );
