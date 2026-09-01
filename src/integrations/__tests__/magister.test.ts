@@ -196,6 +196,28 @@ describe('webcal normalization', () => {
       expect(r.httpsUrl).toContain('https%3A%2F%2Fcalendar.magister.net');
     }
   });
+
+  it('resolves a relative proxy URL against the current origin', () => {
+    const previousOrigin = (globalThis as { location?: { origin: string } }).location?.origin;
+    (globalThis as { location?: { origin: string } }).location = { origin: 'https://calendar.f1nn.me' };
+    try {
+      const r = buildRequestUrl(
+        'webcal://calendar.magister.net/api/icalendar/feeds/abc',
+        '/ics',
+      );
+      expect(r.ok).toBe(true);
+      if (r.ok) {
+        expect(r.httpsUrl.startsWith('https://calendar.f1nn.me/ics?url=')).toBe(true);
+        expect(r.httpsUrl).toContain('https%3A%2F%2Fcalendar.magister.net');
+      }
+    } finally {
+      if (previousOrigin === undefined) {
+        delete (globalThis as { location?: { origin: string } }).location;
+      } else {
+        (globalThis as { location?: { origin: string } }).location = { origin: previousOrigin };
+      }
+    }
+  });
 });
 
 // ---------------------------------------------------------------- sync integration

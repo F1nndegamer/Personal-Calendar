@@ -59,7 +59,12 @@ export function buildRequestUrl(feedUrl: string, proxyBaseUrl?: string): UrlNorm
   if (!proxyBaseUrl) return normalized;
 
   try {
-    const proxy = new URL(proxyBaseUrl);
+    // Resolve relative paths (e.g. "/ics") against the current origin.
+    // `new URL('/ics')` alone throws `Invalid URL` in browsers; passing the
+    // origin as the second argument makes it resolve to e.g.
+    // `https://calendar.f1nn.me/ics`.
+    const base = typeof window !== 'undefined' ? window.location.origin : 'http://localhost';
+    const proxy = new URL(proxyBaseUrl, base);
     if (proxy.protocol !== 'https:' && proxy.protocol !== 'http:') {
       return { ok: false, reason: 'Proxy base URL must be http(s)' };
     }
