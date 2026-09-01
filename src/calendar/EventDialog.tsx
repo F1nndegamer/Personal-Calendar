@@ -35,6 +35,7 @@ export function EventDialog({ event, isNew, readOnly, onSave, onDelete, onClose 
   const start = new Date(draft.start);
   const end = new Date(draft.end);
 
+  
   const save = () => {
     const s = new Date(draft.start);
     const e = new Date(draft.end);
