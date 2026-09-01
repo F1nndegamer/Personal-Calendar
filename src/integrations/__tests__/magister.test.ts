@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { parseIcs } from '../icsParser';
 import { normalizeExternalEvent } from '../normalizeExternalEvent';
 import { createMagisterProvider } from '../magisterProvider';
@@ -261,5 +261,60 @@ describe('syncExternalEvents with Magister ICS data', () => {
   it('never modifies manually-created events', () => {
     const result = syncExternalEvents([manual], external(), 'magister', fetchedAt);
     expect(result.events.find((e) => e.id === 'manual-1')).toEqual(manual);
+  });
+});
+// ---------------------------------------------------------------- fetch timeout
+
+describe('createMagisterProvider — timeout behaviour', () => {
+  it('returns a network error when the fetch times out (signal is aborted)', async () => {
+    // Simulate a hanging fetch that respects the abort signal — the provider
+    // must abort it and return a typed network error.
+    const hungFetch = vi.fn().mockImplementation(
+      (_url: string, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          // The abort signal fires after timeoutMs — a real browser fetch
+          // would throw an AbortError, so we match that here.
+          if (init?.signal instanceof AbortSignal) {
+            init.signal.addEventListener('abort', () => {
+              reject(new DOMException('The user aborted the request.', 'AbortError'));
+            });
+          }
+        }),
+    );
+    const provider = createMagisterProvider({
+      feedUrl: 'webcal://calendar.magister.net/api/icalendar/feeds/abc',
+      fetchImpl: hungFetch as unknown as typeof fetch,
+      timeoutMs: 100,
+    });
+
+    const result = await provider.fetchSchedule(RANGE);
+    // The timeout aborts the fetch and the provider surfaces it as a network error.
+    expect(result.error).toBeDefined();
+    expect(result.error!.code).toBe('network');
+  });
+
+  it('actually aborts the fetch request (signal fires)', async () => {
+    let aborted = false;
+    const abortingFetch = vi.fn().mockImplementation(
+      (_url: string, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          if (init?.signal instanceof AbortSignal) {
+            init.signal.addEventListener('abort', () => {
+              aborted = true;
+              reject(new DOMException('The user aborted the request.', 'AbortError'));
+            });
+          }
+        }),
+    );
+    const provider = createMagisterProvider({
+      feedUrl: 'webcal://calendar.magister.net/api/icalendar/feeds/abc',
+      fetchImpl: abortingFetch as unknown as typeof fetch,
+      timeoutMs: 100,
+    });
+
+    const result = await provider.fetchSchedule(RANGE);
+    expect(result.error).toBeDefined();
+    expect(result.error!.code).toBe('network');
+    expect(aborted).toBe(true);
   });
 });

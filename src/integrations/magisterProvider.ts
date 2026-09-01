@@ -40,6 +40,12 @@ export interface MagisterProviderConfig {
   proxyBaseUrl?: string;
   /** Fetch implementation override (for tests). */
   fetchImpl?: typeof fetch;
+  /**
+   * Request timeout in milliseconds. Defaults to 15_000 (15s). The fetch
+   * is aborted after this duration so a hanging upstream can never leave
+   * the UI stuck in "Syncing…" state.
+   */
+  timeoutMs?: number;
 }
 
 function errorCodeForStatus(status: number) {
@@ -72,9 +78,18 @@ export function createMagisterProvider(config: MagisterProviderConfig): Schedule
 
       let icsText: string;
       try {
-        const response = await doFetch(requestUrl.httpsUrl, {
-          headers: { Accept: 'text/calendar' },
-        });
+        const controller = new AbortController();
+        const timeoutMs = config.timeoutMs ?? 15_000;
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+        let response: Response;
+        try {
+          response = await doFetch(requestUrl.httpsUrl, {
+            headers: { Accept: 'text/calendar' },
+            signal: controller.signal,
+          });
+        } finally {
+          clearTimeout(timeoutId);
+        }
         if (!response.ok) {
           return {
             providerId: 'magister',
@@ -88,13 +103,24 @@ export function createMagisterProvider(config: MagisterProviderConfig): Schedule
         }
         icsText = await response.text();
       } catch (err) {
+        const isTimeout =
+          err instanceof Error &&
+          (err.name === 'AbortError' ||
+            /aborted|abort/i.test(err.name || '') ||
+            /aborted|abort/i.test(err.message));
         return {
           providerId: 'magister',
           fetchedAt: new Date().toISOString(),
           events: [],
           error: {
             code: 'network',
-            message: err instanceof Error ? err.message : 'Failed to fetch the schedule feed',
+            message: isTimeout
+              ? `Schedule sync timed out — the feed did not respond within ${Math.round(
+                  (config.timeoutMs ?? 15_000) / 1000,
+                )}s`
+              : err instanceof Error
+                ? err.message
+                : 'Failed to fetch the schedule feed',
           },
         };
       }

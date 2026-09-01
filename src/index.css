@@ -1,5 +1,5 @@
 :root {
-  --bg: #000000;
+  --bg: #6e6d6d;
   --surface: #0a0a0b;
   --surface-raised: #131316;
   --surface-hover: #1a1a1f;
@@ -28,7 +28,7 @@
 
 html,
 body,
-#root {
+#root { 
   height: 100%;
   margin: 0;
 }

@@ -124,18 +124,24 @@ export default function App() {
     getEvents: () => eventsRef.current,
     commitEvents: (next) => setEvents(next),
     persist: (next) => saveSnapshot({ events: next, tasks }),
+    // Use `anchor` (the stable navigation anchor) rather than `now` (which
+    // is a new Date on every render). Basing the range on anchor means the
+    // range only changes when the user navigates, not on every re-render.
     fetchRange: () => ({
-      from: startOfDay(now),
-      to: addDays(now, 30),
+      from: startOfDay(anchor),
+      to: addDays(anchor, 30),
     }),
   });
 
   // When navigating forward/backward, sync any visible range that extends
   // beyond what's already been synced. The hook only fetches what's needed
   // and preserves previously imported events.
+  // Depend on the specific stable values, NOT the `sync` object identity
+  // (which changes on every render and would cause constant re-runs of this effect).
   useEffect(() => {
     if (sync.configured) void sync.syncIfNeeded();
-  }, [anchor, view, sync]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anchor, sync.configured, sync.state.syncedFrom, sync.state.syncedTo]);
 
   const days = useMemo(() => {
     if (view === 'day') return [startOfDay(anchor)];

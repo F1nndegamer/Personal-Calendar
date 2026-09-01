@@ -60,19 +60,30 @@ export async function handleRequest(req, res) {
         res.end(validation.message);
         return;
     }
-    // Fetch the validated upstream URL
+    // Fetch the validated upstream URL (with a hard timeout so a hanging upstream
+    // never leaves the connection open indefinitely)
     let upstreamResponse;
+    const upstreamController = new AbortController();
+    const upstreamTimeout = setTimeout(() => upstreamController.abort(), 30_000);
     try {
         upstreamResponse = await fetch(validation.httpsUrl, {
             headers: { Accept: 'text/calendar' },
+            signal: upstreamController.signal,
         });
     }
     catch (err) {
-        const message = err instanceof Error ? err.message : 'Upstream request failed';
-        // Log only the host/path shape, never the full URL (contains private feed id)
+        clearTimeout(upstreamTimeout);
+        const message = err instanceof Error && err.name === 'AbortError'
+            ? 'Upstream request timed out after 30s'
+            : err instanceof Error
+                ? err.message
+                : 'Upstream request failed';
         res.writeHead(502, { 'Content-Type': 'text/plain; charset=utf-8' });
         res.end(`Upstream network error: ${message}`);
         return;
+    }
+    finally {
+        clearTimeout(upstreamTimeout);
     }
     // Forward the upstream status code transparently
     if (!upstreamResponse.ok) {
