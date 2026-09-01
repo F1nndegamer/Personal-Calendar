@@ -129,19 +129,20 @@ export default function App() {
     // range only changes when the user navigates, not on every re-render.
     fetchRange: () => ({
       from: startOfDay(anchor),
-      to: addDays(anchor, 30),
+      // 60 days gives ~8 weeks of forward coverage, reducing the chance
+      // the visible range grows faster than the fetched window.
+      to: addDays(anchor, 60),
     }),
   });
 
-  // When navigating forward/backward, sync any visible range that extends
-  // beyond what's already been synced. The hook only fetches what's needed
-  // and preserves previously imported events.
-  // Depend on the specific stable values, NOT the `sync` object identity
-  // (which changes on every render and would cause constant re-runs of this effect).
+  // On every navigation (anchor changes), call syncIfNeeded. This extends
+  // the synced coverage whenever the visible range grows. The hook itself
+  // guards against duplicate syncs (runningRef) and only fetches the union
+  // of the new visible range and whatever is already covered.
   useEffect(() => {
     if (sync.configured) void sync.syncIfNeeded();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [anchor, sync.configured, sync.state.syncedFrom, sync.state.syncedTo]);
+  }, [anchor, sync.configured]);
 
   const days = useMemo(() => {
     if (view === 'day') return [startOfDay(anchor)];
