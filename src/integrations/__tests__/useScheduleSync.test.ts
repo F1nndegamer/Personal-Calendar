@@ -176,6 +176,67 @@ describe('useScheduleSync', () => {
     helper.unmount();
   });
 
+  it('tracks the union of synced ranges so navigation extends, never shrinks coverage', async () => {
+    // Direct unit test of the union logic without going through fetchRange.
+    // We call syncNow with explicit range overrides and verify the tracked
+    // range expands to the union (preventing events from being dropped).
+    const provider: ScheduleProvider = {
+      id: 'magister',
+      displayName: 'Magister',
+      fetchSchedule: vi.fn().mockImplementation((range: { from: Date; to: Date }) => {
+        // Return one event unique to this range
+        return Promise.resolve({
+          providerId: 'magister',
+          fetchedAt: new Date().toISOString(),
+          events: [ext(`les-${range.from.toISOString()}`)],
+        });
+      }),
+    };
+    infoMock.getScheduleProviderInfo.mockReturnValue({ provider, configured: true });
+
+    let current: CalendarEvent[] = [];
+    const { result, unmount } = renderHook(() =>
+      useScheduleSync({
+        getEvents: () => current,
+        commitEvents: (next) => { current = next; },
+        persist: () => {/* noop */},
+        fetchRange: () => ({ from: new Date('2026-09-07'), to: new Date('2026-09-14') }),
+        autoSyncOnStart: false,
+      }),
+    );
+
+    const WEEK_MS = 7 * 86_400_000;
+    const DAY_MS = 86_400_000;
+    const initial = new Date('2026-09-07');
+
+    // First sync: initial 30-day window
+    await act(async () => {
+      await result.current.syncNow({
+        from: initial,
+        to: new Date(initial.getTime() + 30 * DAY_MS),
+      });
+    });
+
+    // Second sync: navigate forward 5 weeks — the new range should include
+    // the original window (via union) so previously imported events are kept.
+    const week5 = new Date(initial.getTime() + 5 * WEEK_MS);
+    await act(async () => {
+      await result.current.syncNow({
+        from: new Date(initial.getTime() + 5 * WEEK_MS - 5 * DAY_MS), // overlap with initial
+        to: new Date(week5.getTime() + 30 * DAY_MS),
+      });
+    });
+
+    // The tracked range must span the union: from initial to week5+30
+    const state = result.current.state;
+    const expectedFrom = initial.getTime();
+    const expectedTo = week5.getTime() + 30 * DAY_MS;
+    expect(state.syncedFrom).toBeLessThanOrEqual(expectedFrom);
+    expect(state.syncedTo).toBeGreaterThanOrEqual(expectedTo);
+
+    unmount();
+  });
+
   it('supports a manual retry after an error', async () => {
     const provider = makeProvider({ error: { code: 'unknown', message: 'boom' } });
     const helper = setup({ provider, autoSyncOnStart: false });

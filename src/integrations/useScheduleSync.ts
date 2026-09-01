@@ -110,13 +110,26 @@ export function useScheduleSync(options: UseScheduleSyncOptions): ScheduleSync {
       opts.persist(merged);
       const from = range.from.getTime();
       const to = range.to.getTime();
-      syncedRangeRef.current = { from, to };
+      // Expand the tracked range to cover the union of all fetches ever made.
+      // This ensures that previously-imported events are never accidentally
+      // dropped when navigating forward past the original 30-day window —
+      // syncExternalEvents() removes any external event not present in the
+      // latest incoming list, so we must always include the previously
+      // synced window in the new fetch.
+      const prev = syncedRangeRef.current;
+      syncedRangeRef.current = {
+        from: prev ? Math.min(prev.from, from) : from,
+        to: prev ? Math.max(prev.to, to) : to,
+      };
       setState({
         status: 'success',
         lastSyncAt: result.fetchedAt,
         errorMessage: undefined,
-        syncedFrom: from,
-        syncedTo: to,
+        // Report the cumulative union range so the useEffect in App can
+        // correctly detect when the visible range has grown beyond what
+        // was previously reported — and trigger a fresh syncIfNeeded.
+        syncedFrom: prev ? Math.min(prev.from, from) : from,
+        syncedTo: prev ? Math.max(prev.to, to) : to,
       });
     } catch (err) {
       setState((prev) => ({
