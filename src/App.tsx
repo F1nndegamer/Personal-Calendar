@@ -194,6 +194,8 @@ export default function App() {
       } else {
         showToast('Server unreachable — using local data.');
       }
+      // Also refresh the Magister feed so we get the latest external events.
+      if (sync.configured) sync.syncNow();
     } catch {
       showToast('Reload failed.');
     } finally {

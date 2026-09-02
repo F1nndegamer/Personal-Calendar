@@ -285,6 +285,30 @@ button {
 .sync-btn .spin {
   animation: sync-spin 0.9s linear infinite;
 }
+/* ---------- Reload from server ---------- */
+
+.reload-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+
+.reload-btn:hover:not(:disabled) {
+  background: var(--surface-hover);
+  border-color: #33333b;
+  color: var(--text);
+}
+
+.reload-btn .spin {
+  animation: sync-spin 0.9s linear infinite;
+}
 
 @keyframes sync-spin {
   from {
