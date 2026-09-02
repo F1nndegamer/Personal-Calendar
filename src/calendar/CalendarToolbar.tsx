@@ -46,6 +46,7 @@ export function CalendarToolbar({
   onSync,
   isMobile,
   onSettings,
+  onReload,
 }: Props) {
   const inRange = days.some((d) => isSameDay(d, today));
   const label =
