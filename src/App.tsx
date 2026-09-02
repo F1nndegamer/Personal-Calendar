@@ -174,6 +174,33 @@ export default function App() {
     showToast(trimmed ? 'Settings saved. Reload to apply.' : 'Settings saved.');
   };
 
+  /**
+   * Pull the latest events/tasks/feedUrl from the server and replace local state.
+   * Used by the Reload button so the user can pick up changes made on other
+   * devices without a full page refresh. The server is the source of truth
+   * for cross-device sync.
+   */
+  const [reloading, setReloading] = useState(false);
+  const handleReloadFromServer = async () => {
+    if (reloading) return;
+    setReloading(true);
+    try {
+      const remote = await loadFromServer();
+      if (remote) {
+        if (remote.events.length > 0) setEvents(remote.events);
+        if (remote.tasks.length > 0) setTasks(remote.tasks);
+        if (remote.feedUrl) setFeedUrl(remote.feedUrl);
+        showToast('Reloaded from server.');
+      } else {
+        showToast('Server unreachable — using local data.');
+      }
+    } catch {
+      showToast('Reload failed.');
+    } finally {
+      setReloading(false);
+    }
+  };
+
   const showToast = (message: string) => {
     const id = ++toastId;
     setToasts((t) => [...t, { id, message }]);
@@ -454,6 +481,7 @@ export default function App() {
             onSync={sync.syncNow}
             isMobile={isMobile}
             onSettings={() => setSettingsOpen(true)}
+            onReload={handleReloadFromServer}
           />
           <CalendarGrid
             days={days}

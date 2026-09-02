@@ -17,6 +17,8 @@ interface Props {
   onSync?: () => void;
   /** Opens the Settings dialog (feed URL configuration) */
   onSettings?: () => void;
+  /** Reloads events/tasks/feedUrl from the server (source of truth across devices) */
+  onReload?: () => void;
   /** Phone layout hint (from the app's single media query listener) */
   isMobile?: boolean;
 }
@@ -96,6 +98,17 @@ export function CalendarToolbar({
           >
             <RefreshCw size={14} className={syncing ? 'spin' : ''} />
             <span>{syncing ? 'Syncing…' : 'Sync'}</span>
+          </button>
+        )}
+        {onReload && (
+          <button
+            className="icon-btn reload-btn"
+            onClick={onReload}
+            title="Reload from server"
+            aria-label="Reload from server"
+          >
+            <RefreshCw size={14} />
+            <span>Reload</span>
           </button>
         )}
         <div className="view-toggle" role="tablist">
