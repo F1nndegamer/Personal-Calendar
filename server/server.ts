@@ -1,146 +1,159 @@
 /**
- * Production iCalendar proxy server.
+ * Production iCalendar proxy + data storage server.
  *
- * Architecture:
- *   Internet → calendar.f1nn.me → Cloudflare Tunnel → Nginx :80
- *     ├── /       → static dist/
- *     └── /ics    → Node proxy :3000 → calendar.magister.net
+ * Routes:
+ *   GET  /ics?url=…   → proxies to Magister
+ *   GET  /api/storage → returns { events, tasks, feedUrl }
+ *   PUT  /api/storage → saves { events, tasks, feedUrl }
  *
- * The proxy enforces the same allowlist as the browser-side
- * src/integrations/webcal.ts: only HTTPS requests to
- * calendar.magister.net are permitted, and only under
- * /api/icalendar/feeds/. It is NOT an open proxy.
- *
- * The server never logs the full Magister feed URL — it contains a
- * private feed identifier.
- *
- * Handles GET /ics?url=<encoded-magister-url>
+ * STORAGE_PATH env var controls where data is saved.
  */
 import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { validateProxyUrl } from './proxyCore.js';
+import { readStorage, writeStorage, type StoredData } from './storage.js';
 
 const HOST = process.env.HOST || '127.0.0.1';
 const PORT = Number(process.env.PORT) || 3000;
 
-/**
- * Handles GET /ics?url=<encoded-magister-url>.
- *
- * Returns:
- *   200 with text/calendar — successful upstream fetch
-   *   400 — missing/invalid url query parameter
-   *   401/403 — upstream authentication failure (passed through)
-   *   429 — upstream rate-limit (passed through)
-   *   502 — upstream server error or network failure
-   */
-  export async function handleRequest(
-    req: http.IncomingMessage,
-    res: http.ServerResponse,
-  ): Promise<void> {
-    const url = req.url ?? '/';
+function handleStorageRequest(req: http.IncomingMessage, res: http.ServerResponse): void {
+  const path = req.url?.split('?')[0] ?? '';
 
-    // Only handle the /ics path
-    const pathAndQuery = url.split('?')[0];
-    if (pathAndQuery !== '/ics') {
-      res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
-      res.end('Not Found');
-      return;
-    }
-
-    if (req.method !== 'GET') {
-      res.writeHead(405, {
-        'Content-Type': 'text/plain; charset=utf-8',
-        Allow: 'GET',
-      });
-      res.end('Method Not Allowed');
-      return;
-    }
-
-    // Extract the url query parameter
-    const queryStart = url.indexOf('?');
-    const searchParams =
-      queryStart >= 0 ? new URLSearchParams(url.slice(queryStart + 1)) : new URLSearchParams();
-    const rawUrl = searchParams.get('url') ?? '';
-
-    const validation = validateProxyUrl(rawUrl);
-    if (!validation.ok) {
-      res.writeHead(validation.status, {
-        'Content-Type': 'text/plain; charset=utf-8',
-      });
-      res.end(validation.message);
-      return;
-    }
-
-    // Fetch the validated upstream URL (with a hard timeout so a hanging upstream
-    // never leaves the connection open indefinitely)
-    let upstreamResponse: Response;
-    const upstreamController = new AbortController();
-    const upstreamTimeout = setTimeout(() => upstreamController.abort(), 30_000);
+  if (req.method === 'GET' && path === '/api/storage') {
     try {
-      upstreamResponse = await fetch(validation.httpsUrl, {
-        headers: { Accept: 'text/calendar' },
-        signal: upstreamController.signal,
-      });
+      const data = readStorage();
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify(data));
     } catch (err) {
-      clearTimeout(upstreamTimeout);
-      const message =
-        err instanceof Error && err.name === 'AbortError'
-          ? 'Upstream request timed out after 30s'
-          : err instanceof Error
-            ? err.message
-            : 'Upstream request failed';
-      res.writeHead(502, { 'Content-Type': 'text/plain; charset=utf-8' });
-      res.end(`Upstream network error: ${message}`);
-      return;
-    } finally {
-      clearTimeout(upstreamTimeout);
+      res.writeHead(500, { 'Content-Type': 'text/plain' });
+      res.end(err instanceof Error ? err.message : 'Read failed');
     }
-
-    // Forward the upstream status code transparently
-    if (!upstreamResponse.ok) {
-      const body = await upstreamResponse.text().catch(() => '');
-      res.writeHead(upstreamResponse.status, {
-        'Content-Type': upstreamResponse.headers.get('content-type') ||
-          'text/plain; charset=utf-8',
-      });
-      res.end(body);
-      return;
-    }
-
-    // Forward the successful iCalendar response
-    const contentType =
-      upstreamResponse.headers.get('content-type') || 'text/calendar; charset=utf-8';
-    const body = await upstreamResponse.text();
-    res.writeHead(200, {
-      'Content-Type': contentType,
-      // No caching — feeds are personal and change frequently
-      'Cache-Control': 'no-store',
-    });
-    res.end(body);
+    return;
   }
 
-// Only start the live HTTP listener when this file is executed directly.
-// `import.meta.url` equals `process.argv[1]` only for the entrypoint script.
-// Tests import `handleRequest` via the testHarness and must not trigger listen.
+  if (req.method === 'PUT' && path === '/api/storage') {
+    let body = '';
+    req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+    req.on('end', () => {
+      try {
+        const parsed = JSON.parse(body) as Partial<StoredData>;
+        const current = readStorage();
+        const next: StoredData = {
+          events: Array.isArray(parsed.events) ? parsed.events : current.events,
+          tasks: Array.isArray(parsed.tasks) ? parsed.tasks : current.tasks,
+          feedUrl: typeof parsed.feedUrl === 'string' ? parsed.feedUrl : current.feedUrl,
+        };
+        writeStorage(next);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+      } catch (err) {
+        res.writeHead(400, { 'Content-Type': 'text/plain' });
+        res.end(err instanceof Error ? err.message : 'Write failed');
+      }
+    });
+    return;
+  }
+
+  res.writeHead(404, { 'Content-Type': 'text/plain' });
+  res.end('Not Found');
+}
+
+export async function handleIcsRequest(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+): Promise<void> {
+  const url = req.url ?? '/';
+  const pathAndQuery = url.split('?')[0];
+  if (pathAndQuery !== '/ics') return;
+
+  if (req.method !== 'GET') {
+    res.writeHead(405, { 'Content-Type': 'text/plain', Allow: 'GET' });
+    res.end('Method Not Allowed');
+    return;
+  }
+
+  const qs = new URLSearchParams(url.includes('?') ? url.slice(url.indexOf('?')) : '');
+  const rawUrl = qs.get('url') ?? '';
+  const validation = validateProxyUrl(rawUrl);
+  if (!validation.ok) {
+    res.writeHead(validation.status, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end(validation.message);
+    return;
+  }
+
+  let upstreamResponse: Response;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30_000);
+  try {
+    upstreamResponse = await fetch(validation.httpsUrl, {
+      headers: { Accept: 'text/calendar' },
+      signal: controller.signal,
+    });
+  } catch (err) {
+    clearTimeout(timeout);
+    const msg =
+      err instanceof Error && err.name === 'AbortError'
+        ? 'Upstream request timed out after 30s'
+        : err instanceof Error ? err.message : 'Upstream request failed';
+    res.writeHead(502, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end(`Upstream network error: ${msg}`);
+    return;
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (!upstreamResponse.ok) {
+    const body = await upstreamResponse.text().catch(() => '');
+    res.writeHead(upstreamResponse.status, {
+      'Content-Type':
+        upstreamResponse.headers.get('content-type') || 'text/plain; charset=utf-8',
+    });
+    res.end(body);
+    return;
+  }
+
+  const contentType =
+    upstreamResponse.headers.get('content-type') || 'text/calendar; charset=utf-8';
+  const body = await upstreamResponse.text();
+  res.writeHead(200, { 'Content-Type': contentType, 'Cache-Control': 'no-store' });
+  res.end(body);
+}
+
+export async function handleRequest(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+): Promise<void> {
+  const path = req.url?.split('?')[0] ?? '';
+
+  if (path === '/api/storage') {
+    handleStorageRequest(req, res);
+    return;
+  }
+
+  if (path === '/ics' || path.startsWith('/ics?')) {
+    await handleIcsRequest(req, res);
+    return;
+  }
+
+  res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+  res.end('Not Found');
+}
+
 function startListener(): void {
   const server = http.createServer((req, res) => {
     handleRequest(req, res).catch((err) => {
-      // Unexpected error — never crash the server
-      const message =
-        err instanceof Error ? err.message : 'Internal server error';
+      const msg = err instanceof Error ? err.message : 'Internal server error';
       if (!res.headersSent) {
         res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
       }
-      res.end(`Internal server error: ${message}`);
+      res.end(`Internal server error: ${msg}`);
     });
   });
 
   server.listen(PORT, HOST, () => {
-    // Intentionally does NOT print the feed URL — only the listen address
-    console.log(`iCalendar proxy listening on http://${HOST}:${PORT}`);
+    console.log(`Calendar server listening on http://${HOST}:${PORT}`);
   });
 
-  // Graceful shutdown
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.on(signal, () => {
       server.close(() => process.exit(0));

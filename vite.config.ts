@@ -10,6 +10,10 @@ export default defineConfig({
         target: 'https://calendar.f1nn.me',
         changeOrigin: true,
       },
+      '/api/storage': {
+        target: 'https://calendar.f1nn.me',
+        changeOrigin: true,
+      },
     },
   },
 })

@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
+import { ChevronLeft, ChevronRight, RefreshCw, Settings as SettingsIcon } from 'lucide-react';
 import { formatDayLabel, formatDayNumber, formatWeekRange, isSameDay } from './lib';
 import type { CalendarView } from './types';
 import type { SyncState } from '../integrations/useScheduleSync';
@@ -15,6 +15,8 @@ interface Props {
   syncState?: SyncState;
   syncConfigured?: boolean;
   onSync?: () => void;
+  /** Opens the Settings dialog (feed URL configuration) */
+  onSettings?: () => void;
   /** Phone layout hint (from the app's single media query listener) */
   isMobile?: boolean;
 }
@@ -41,6 +43,7 @@ export function CalendarToolbar({
   syncConfigured,
   onSync,
   isMobile,
+  onSettings,
 }: Props) {
   const inRange = days.some((d) => isSameDay(d, today));
   const label =
@@ -75,6 +78,14 @@ export function CalendarToolbar({
         <span className="toolbar-date" aria-hidden={!isMobile}>
           {label}
         </span>
+        <button
+          className="icon-btn"
+          onClick={onSettings}
+          title="Settings"
+          aria-label="Open settings"
+        >
+          <SettingsIcon size={16} />
+        </button>
         {showSync && (
           <button
             className={`sync-btn${syncState?.status === 'error' ? ' error' : ''}`}

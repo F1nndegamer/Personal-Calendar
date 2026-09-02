@@ -11,6 +11,8 @@ import { QuickAdd } from './quickAdd/QuickAdd';
 import type { ParsedQuickAdd } from './quickAdd/types';
 import { loadSnapshot, saveSnapshot } from './storage/storage';
 import { useScheduleSync } from './integrations/useScheduleSync';
+import { Settings } from './components/Settings';
+import { loadFromServer, saveToServer } from './serverStorage';
 
 const uid = (prefix: string) =>
   `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -44,14 +46,30 @@ interface Toast {
 
 let toastId = 0;
 
-/** Load stored data once; fall back to an empty state on first run. */
-function loadInitialState(): { events: CalendarEvent[]; tasks: Task[] } {
-  const stored = loadSnapshot();
-  if (stored) return stored;
-  return { events: [], tasks: [] };
+/** Read the currently-configured feed URL (localStorage or env). */
+function getCurrentFeedUrl(): string | null {
+  try {
+    const stored = localStorage.getItem('calendar-app/feedUrl');
+    if (stored && stored.trim().length > 0) return stored.trim();
+  } catch {/* ignore */}
+  const envFeed = import.meta.env.VITE_MAGISTER_FEED_URL as string | undefined;
+  if (envFeed && envFeed.trim().length > 0) return envFeed.trim();
+  return null;
 }
 
 export default function App() {
+  // Whether we've finished loading the initial dataset. The first render
+  // shows a brief loading state so we don't flash mock/empty data before
+  // the server has had a chance to respond.
+  const [loading, setLoading] = useState(true);
+
+  // The user's runtime-configured feed URL. Empty string means "not set".
+  const [feedUrl, setFeedUrl] = useState<string>(getCurrentFeedUrl() ?? '');
+
+  // Track if a server load has been attempted (so we don't keep retrying
+  // on every render if the server is unreachable).
+  const [serverAttempted, setServerAttempted] = useState(false);
+
   const [view, setView] = useState<CalendarView>(() =>
     prefersPhoneLayout() ? 'day' : 'week',
   );
@@ -62,7 +80,12 @@ export default function App() {
   const [activePane, setActivePane] = useState<'calendar' | 'tasks'>(
     'calendar',
   );
-  const [initial] = useState(loadInitialState);
+
+  // Default dataset — replaced by the loaded snapshot once it arrives.
+  const [initial] = useState<{ events: CalendarEvent[]; tasks: Task[] }>(() => {
+    const stored = loadSnapshot();
+    return stored ?? { events: [], tasks: [] };
+  });
   const [events, setEvents] = useState<CalendarEvent[]>(initial.events);
   const [tasks, setTasks] = useState<Task[]>(initial.tasks);
   const [dialogEvent, setDialogEvent] = useState<CalendarEvent | null>(null);
@@ -71,7 +94,59 @@ export default function App() {
   const [isNewTask, setIsNewTask] = useState(false);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const now = new Date();
+
+  // On mount, try to load the full dataset from the server. The server is
+  // the source of truth — it lets us sync events/tasks across devices.
+  // Falls back to the local localStorage snapshot if the server is
+  // unreachable (e.g. during local dev without the proxy).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const remote = await loadFromServer();
+        if (cancelled) return;
+        if (remote) {
+          if (remote.events.length > 0) setEvents(remote.events);
+          if (remote.tasks.length > 0) setTasks(remote.tasks);
+          if (remote.feedUrl) setFeedUrl(remote.feedUrl);
+        }
+      } catch {
+        // Server unreachable — local data is the best we have
+      } finally {
+        if (!cancelled) {
+          setServerAttempted(true);
+          setLoading(false);
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Restore the last-used view + anchor from localStorage. We do this AFTER
+  // the server load so that anchor updates coming from the server (if any)
+  // take precedence over the localStorage value.
+  useEffect(() => {
+    if (!serverAttempted) return;
+    try {
+      const storedView = localStorage.getItem('calendar-app/view');
+      if (storedView === 'day' || storedView === 'week') {
+        // Don't override if the user is on a phone and the stored view
+        // would be wrong for the screen size
+        if (!prefersPhoneLayout() || storedView === 'day') {
+          setView(storedView);
+        }
+      }
+      const storedAnchor = localStorage.getItem('calendar-app/anchor');
+      if (storedAnchor) {
+        const t = new Date(storedAnchor).getTime();
+        if (Number.isFinite(t)) {
+          setAnchor(new Date(t));
+        }
+      }
+    } catch {/* ignore */}
+  }, [serverAttempted]);
 
   // Keep the phone-layout flag in sync when the viewport crosses the
   // breakpoint (rotation, window resize). Layout-only concern: the existing
@@ -83,6 +158,21 @@ export default function App() {
     setIsMobile(mq.matches);
     return () => mq.removeEventListener('change', onChange);
   }, []);
+
+  const handleSaveSettings = (newFeedUrl: string) => {
+    const trimmed = newFeedUrl.trim();
+    setFeedUrl(trimmed);
+    try {
+      if (trimmed) {
+        localStorage.setItem('calendar-app/feedUrl', trimmed);
+      } else {
+        localStorage.removeItem('calendar-app/feedUrl');
+      }
+    } catch {/* ignore */}
+    // Also persist to server so other devices can see the change
+    saveToServer({ events, tasks, feedUrl: trimmed || null });
+    showToast(trimmed ? 'Settings saved. Reload to apply.' : 'Settings saved.');
+  };
 
   const showToast = (message: string) => {
     const id = ++toastId;
@@ -112,7 +202,18 @@ export default function App() {
   useEffect(() => {
     if (events === initial.events && tasks === initial.tasks) return;
     saveSnapshot({ events, tasks });
-  }, [events, tasks, initial]);
+    saveToServer({ events, tasks, feedUrl: feedUrl || null });
+  }, [events, tasks, initial, feedUrl]);
+
+  // Persist view + anchor to localStorage so the user comes back to the
+  // same spot. The server snapshot intentionally does NOT include these —
+  // each device has its own preferred view.
+  useEffect(() => {
+    try {
+      localStorage.setItem('calendar-app/view', view);
+      localStorage.setItem('calendar-app/anchor', anchor.toISOString());
+    } catch {/* ignore */}
+  }, [view, anchor]);
 
   // External schedule sync — handled by the reusable orchestration hook
   // (see src/integrations/useScheduleSync.ts). It runs once on startup when a
@@ -123,7 +224,10 @@ export default function App() {
   const sync = useScheduleSync({
     getEvents: () => eventsRef.current,
     commitEvents: (next) => setEvents(next),
-    persist: (next) => saveSnapshot({ events: next, tasks }),
+    persist: (next) => {
+      saveSnapshot({ events: next, tasks });
+      saveToServer({ events: next, tasks, feedUrl: feedUrl || null });
+    },
     // Use `anchor` (the stable navigation anchor) rather than `now` (which
     // is a new Date on every render). Basing the range on anchor means the
     // range only changes when the user navigates, not on every re-render.
@@ -315,7 +419,12 @@ export default function App() {
   const openTaskCount = tasks.filter((t) => !t.completed).length;
 
   return (
-    <div className={`app with-tasks${isMobile ? ' mobile' : ''}`}>
+    <div className={`app with-tasks${isMobile ? ' mobile' : ''}${loading ? ' loading' : ''}`}>
+      {loading && (
+        <div className="app-loading-overlay" aria-hidden={!loading}>
+          <div className="app-loading-spinner" />
+        </div>
+      )}
       <div className="mobile-panes">
         <div
           className={`tasks-pane${isMobile && activePane !== 'tasks' ? ' pane-hidden' : ''}`}
@@ -344,6 +453,7 @@ export default function App() {
             syncConfigured={sync.configured}
             onSync={sync.syncNow}
             isMobile={isMobile}
+            onSettings={() => setSettingsOpen(true)}
           />
           <CalendarGrid
             days={days}
@@ -410,6 +520,13 @@ export default function App() {
           open={quickAddOpen}
           onClose={() => setQuickAddOpen(false)}
           onAddTask={handleQuickAdd}
+        />
+      )}
+      {settingsOpen && (
+        <Settings
+          feedUrl={feedUrl}
+          onSave={handleSaveSettings}
+          onClose={() => setSettingsOpen(false)}
         />
       )}
       {toasts.map((t) => (
