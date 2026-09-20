@@ -1,16 +1,19 @@
 {
   "name": "personal-calendar",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   
   "scripts": {
     "dev": "vite",
-    "build": "npm run build:server && vite build",
+    "build": "npm run version:check && npm run build:server && vite build",
     "build:server": "tsc -p tsconfig.server.json",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "version:check": "node scripts/version.mjs check",
+    "version:sync": "node scripts/version.mjs sync",
+    "version:bump": "node scripts/version.mjs bump"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

@@ -1,0 +1,53 @@
+/**
+ * SINGLE SOURCE OF TRUTH for the application version.
+ *
+ * Everything else derives from here:
+ *   - `package.json` -> kept in sync by `npm run version:sync`
+ *   - the Settings dialog -> imports `APP_VERSION`
+ *
+ * Do NOT hard-code a version string anywhere else. To bump, run:
+ *
+ *   npm run version:bump -- minor "Short description of what changed"
+ *
+ * which updates `APP_VERSION`, prepends a `VERSION_HISTORY` entry, and
+ * syncs `package.json`. See VERSION.md for the full policy.
+ */
+
+/** The current published version (semver: MAJOR.MINOR.PATCH). */
+export const APP_VERSION = '0.2.0';
+
+/** How large a change set was. Drives which semver field is incremented. */
+export type BumpLevel = 'major' | 'minor' | 'patch';
+
+/** One released version. Newest first. */
+export interface VersionEntry {
+  /** Semver string, must equal the entry's position in history. */
+  version: string;
+  /** ISO date (YYYY-MM-DD) the version was cut. */
+  date: string;
+  /** Which semver field this release incremented. */
+  level: BumpLevel;
+  /** One-line, user-facing summary of the change set. */
+  summary: string;
+}
+
+/**
+ * Full release history, newest first. The first entry MUST match
+ * `APP_VERSION` — `src/__tests__/version.test.ts` enforces this.
+ */
+export const VERSION_HISTORY: readonly VersionEntry[] = [
+  {
+    version: '0.2.0',
+    date: '2026-09-20',
+    level: 'minor',
+    summary:
+      'Version is now a single source of truth with automated sync/check/bump tooling and agent-enforced versioning rules.',
+  },
+  {
+    version: '0.1.0',
+    date: '2026-09-20',
+    level: 'minor',
+    summary:
+      'Extend the schedule sync range to 10 years forward (new addYears helper) and show the app version in Settings.',
+  },
+];

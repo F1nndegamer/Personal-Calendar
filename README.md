@@ -1,4 +1,31 @@
-# React + TypeScript + Vite
+# Personal Calendar
+
+A Vite + React 19 + TypeScript calendar app that syncs a private Magister
+iCalendar feed through a small Node proxy, and keeps its data locally
+(IndexedDB) and on a self-hosted server.
+
+- **Versioning & release policy:** [`VERSION.md`](./VERSION.md)
+- **Rules for agents & contributors:** [`AGENTS.md`](./AGENTS.md)
+- **Production deployment:** [`DEPLOY.md`](./DEPLOY.md)
+
+## Commands
+
+| Command | What it does |
+|---------|--------------|
+| `npm run dev` | Vite dev server |
+| `npm test` | Run the suite (includes the version-consistency test) |
+| `npm run lint` | ESLint |
+| `npm run build` | `version:check` → build server → build frontend |
+| `npm run version:bump -- <patch\|minor\|major> "<summary>"` | Bump the app version, add a changelog entry, sync `package.json` |
+| `npm run version:check` | Fail if `package.json` and `src/version.ts` disagree |
+
+> **Every meaningful change bumps the version.** `src/version.ts` is the single
+> source of truth; `npm run build` and `npm test` both fail if it drifts.
+> See [`VERSION.md`](./VERSION.md) for how to pick the level.
+
+---
+
+## React + TypeScript + Vite
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 

@@ -1,0 +1,41 @@
+---
+description: Version bumping is mandatory for every meaningful change in this repo
+alwaysApply: true
+---
+
+# Version bumping (REQUIRED)
+
+`src/version.ts` → `APP_VERSION` is the **single source of truth**. Nothing else
+may define a version string; `package.json` and the Settings dialog derive from it.
+
+Before finishing any task that changes code, config, or docs, run exactly one
+bump:
+
+```bash
+npm run version:bump -- <patch|minor|major> "short summary of the change set"
+```
+
+That updates `APP_VERSION`, prepends a `VERSION_HISTORY` entry, and syncs
+`package.json`. Never hand-edit the version numbers.
+
+## Level — judge the whole change set, take the highest
+
+- **MAJOR** — breaks stored data, a storage/API contract, or needs a migration
+  (e.g. changing the IndexedDB or server storage format, changing the `/ics`
+  proxy contract, removing a feature).
+- **MINOR** — something new or user-visible changed (e.g. a new component, hook,
+  module or exported function; a new dependency; a different default date range;
+  changed ICS parsing or sync behaviour).
+- **PATCH** — fixes and maintenance only (bug fix with no contract change,
+  comments, docs, formatting, tests, behaviour-preserving refactor).
+
+Exactly **one** bump per task; never skip a level. Many changes are still one
+bump — but if any of them is breaking, the task is MAJOR. When torn between two
+levels, pick the higher one.
+
+## Verify
+
+`npm run version:check` must pass; `npm test` includes
+`src/__tests__/version.test.ts`; `npm run build` runs `version:check` first.
+
+Full policy: `VERSION.md`. General repo rules: `AGENTS.md`.

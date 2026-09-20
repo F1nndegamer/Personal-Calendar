@@ -1,8 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
-
-/** App version - increment this after significant changes */
-export const APP_VERSION = '0.1.0';
+import { APP_VERSION } from '../version';
 
 interface Props {
   feedUrl: string;

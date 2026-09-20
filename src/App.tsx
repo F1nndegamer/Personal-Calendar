@@ -257,7 +257,7 @@ export default function App() {
       saveSnapshot({ events: next, tasks });
       saveToServer({ events: next, tasks, feedUrl: feedUrl || null });
     },
-        // Use `anchor` (the stable navigation anchor) rather than `now` (which
+    // Use `anchor` (the stable navigation anchor) rather than `now` (which
     // is a new Date on every render). Basing the range on anchor means the
     // range only changes when the user navigates, not on every re-render.
     fetchRange: () => ({
