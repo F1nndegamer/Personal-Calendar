@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { addDays, startOfDay, startOfWeek } from './calendar/lib';
+import { addDays, addYears, startOfDay, startOfWeek } from './calendar/lib';
 import type { CalendarEvent, CalendarView } from './calendar/types';
 import { CalendarToolbar } from './calendar/CalendarToolbar';
 import { CalendarGrid } from './calendar/CalendarGrid';
@@ -257,14 +257,14 @@ export default function App() {
       saveSnapshot({ events: next, tasks });
       saveToServer({ events: next, tasks, feedUrl: feedUrl || null });
     },
-    // Use `anchor` (the stable navigation anchor) rather than `now` (which
+        // Use `anchor` (the stable navigation anchor) rather than `now` (which
     // is a new Date on every render). Basing the range on anchor means the
     // range only changes when the user navigates, not on every re-render.
     fetchRange: () => ({
       from: startOfDay(anchor),
-      // 60 days gives ~8 weeks of forward coverage, reducing the chance
-      // the visible range grows faster than the fetched window.
-      to: addDays(anchor, 60),
+      // 10 years of forward coverage ensures events far in the future
+      // (e.g., recurring school schedules) are never missed.
+      to: addYears(anchor, 10),
     }),
   });
 

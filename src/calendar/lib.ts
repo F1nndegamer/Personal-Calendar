@@ -17,6 +17,12 @@ export function startOfWeek(d: Date): Date {
   return n;
 }
 
+export function addYears(d: Date, years: number): Date {
+  const n = new Date(d);
+  n.setFullYear(n.getFullYear() + years);
+  return n;
+}
+
 export function addDays(d: Date, days: number): Date {
   const n = new Date(d);
   n.setDate(n.getDate() + days);

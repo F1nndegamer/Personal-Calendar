@@ -69,5 +69,5 @@ export const MALFORMED_ICS = 'BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nbroken';
 
 export const RANGE = {
   from: new Date(Date.UTC(2026, 8, 7, 0, 0, 0)), // 2026-09-07
-  to: new Date(Date.UTC(2026, 8, 12, 0, 0, 0)), // 2026-09-12
+  to: new Date(Date.UTC(2026, 9, 1, 0, 0, 0)), // 2026-10-01
 };

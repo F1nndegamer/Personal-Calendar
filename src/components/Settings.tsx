@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 
+/** App version - increment this after significant changes */
+export const APP_VERSION = '0.1.0';
+
 interface Props {
   feedUrl: string;
   onSave: (url: string) => void;
@@ -75,6 +78,9 @@ export function Settings({ feedUrl, onSave, onClose }: Props) {
             {saving ? 'Saving…' : saved ? 'Saved!' : 'Save'}
           </button>
         </div>
+        <p style={{ fontSize: 11, color: 'var(--text-muted, #888)', textAlign: 'center', marginTop: 8 }}>
+          v{APP_VERSION}
+        </p>
       </div>
     </div>
   );
