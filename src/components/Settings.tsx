@@ -12,10 +12,13 @@ interface Props {
   onOledToggle: (on: boolean) => void;
   onAutoOledToggle: (on: boolean) => void;
   onOledWindowChange: (start: string, end: string) => void;
+  /** Smart-buffer minutes between events (0 disables). */
+  bufferMinutes: number;
+  onBufferMinutesChange: (minutes: number) => void;
   onClose: () => void;
 }
 
-export function Settings({ feedUrl, oledMode, autoOledMode, oledModeStart, oledModeEnd, onSave, onOledToggle, onAutoOledToggle, onOledWindowChange, onClose }: Props) {
+export function Settings({ feedUrl, oledMode, autoOledMode, oledModeStart, oledModeEnd, onSave, onOledToggle, onAutoOledToggle, onOledWindowChange, bufferMinutes, onBufferMinutesChange, onClose }: Props) {
   const [value, setValue] = useState(feedUrl);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -71,6 +74,29 @@ export function Settings({ feedUrl, oledMode, autoOledMode, oledModeStart, oledM
           The URL is stored locally in your browser and on the server
           (for cross-device sync).
         </p>
+
+        {/* ---------- Smart buffers ---------- */}
+        <div className="settings-section">
+          <div className="settings-section-title">Smart buffers</div>
+          <p className="settings-section-desc">
+            Automatically keep breathing room between events. New and moved
+            events are shifted so they never sit flush against their
+            neighbours.
+          </p>
+          <label className="field">
+            <span>Buffer between events</span>
+            <select
+              value={bufferMinutes}
+              onChange={(e) => onBufferMinutesChange(Number(e.target.value))}
+            >
+              <option value={0}>Off</option>
+              <option value={5}>5 minutes</option>
+              <option value={10}>10 minutes</option>
+              <option value={15}>15 minutes</option>
+              <option value={20}>20 minutes</option>
+            </select>
+          </label>
+        </div>
 
         {/* ---------- OLED theme ---------- */}
         <div className="settings-section">

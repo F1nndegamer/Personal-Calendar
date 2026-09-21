@@ -7,6 +7,7 @@ import { EventDialog } from './calendar/EventDialog';
 import type { Task } from './tasks/types';
 import { TaskPanel } from './tasks/TaskPanel';
 import { isOverdue } from './tasks/lib';
+import { applyBuffer, timesChanged, DEFAULT_BUFFER_MIN } from './calendar/buffer';
 import { TaskDialog } from './tasks/TaskDialog';
 import { QuickAdd } from './quickAdd/QuickAdd';
 import type { ParsedQuickAdd } from './quickAdd/types';
@@ -177,6 +178,14 @@ export default function App() {
   const [oledModeEnd, setOledModeEnd] = useState<string>(() => {
     try { return localStorage.getItem('calendar-app/oledModeEnd') ?? '07:00'; } catch {/* ignore */}
     return '07:00';
+  });
+  // Smart-buffer minutes kept between events (0 disables the feature).
+  const [bufferMinutes, setBufferMinutes] = useState<number>(() => {
+    try {
+      const raw = localStorage.getItem('calendar-app/bufferMinutes');
+      if (raw !== null && Number.isFinite(Number(raw))) return Number(raw);
+    } catch {/* ignore */}
+    return DEFAULT_BUFFER_MIN;
   });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const now = new Date();
@@ -436,10 +445,18 @@ export default function App() {
   }, [view, dialogEvent, dialogTask, quickAddOpen, settingsOpen]);
 
   const handleEventChange = (id: string, start: Date, end: Date) => {
+    // Smart buffers: when dragging an event, keep it clear of its neighbours.
+    const adjusted =
+      bufferMinutes > 0
+        ? applyBuffer({ start, end }, events, bufferMinutes, id)
+        : { start, end };
+    if (timesChanged({ start, end }, adjusted)) {
+      showToast(`Shifted to keep a ${bufferMinutes} min buffer.`);
+    }
     setEvents((prev) =>
       prev.map((e) =>
         e.id === id
-          ? { ...e, start: start.toISOString(), end: end.toISOString() }
+          ? { ...e, start: adjusted.start.toISOString(), end: adjusted.end.toISOString() }
           : e,
       ),
     );
@@ -449,11 +466,14 @@ export default function App() {
     const start = new Date(day);
     start.setHours(Math.floor(startMin / 60), startMin % 60, 0, 0);
     const end = new Date(start.getTime() + 60 * 60_000);
+    // Pre-adjust the dialog's proposed time so the buffer is respected from
+    // the first frame (and the user sees the final time in the dialog).
+    const adjusted = applyBuffer({ start, end }, events, bufferMinutes);
     setDialogEvent({
       id: uid('ev'),
       title: '',
-      start: start.toISOString(),
-      end: end.toISOString(),
+      start: adjusted.start.toISOString(),
+      end: adjusted.end.toISOString(),
       color: 'blue',
     });
     setIsNewEvent(true);
@@ -570,12 +590,14 @@ export default function App() {
     const start = new Date(day);
     start.setHours(Math.floor(startMin / 60), startMin % 60, 0, 0);
     const duration = (task.estimatedMinutes ?? 60) * 60_000;
+    // Smart buffers: nudge the dropped placement clear of neighbours.
+    const adjusted = applyBuffer({ start, end: new Date(start.getTime() + duration) }, events, bufferMinutes);
     const event: CalendarEvent = {
       id: uid('ev'),
       title: task.title,
       description: task.description,
-      start: start.toISOString(),
-      end: new Date(start.getTime() + duration).toISOString(),
+      start: adjusted.start.toISOString(),
+      end: adjusted.end.toISOString(),
       color: task.color,
       category: task.category,
       taskId: task.id,
@@ -735,6 +757,11 @@ export default function App() {
               localStorage.setItem('calendar-app/oledModeStart', start);
               localStorage.setItem('calendar-app/oledModeEnd', end);
             } catch {/* ignore */}
+          }}
+          bufferMinutes={bufferMinutes}
+          onBufferMinutesChange={(min) => {
+            setBufferMinutes(min);
+            try { localStorage.setItem('calendar-app/bufferMinutes', String(min)); } catch {/* ignore */}
           }}
           onClose={() => setSettingsOpen(false)}
         />
