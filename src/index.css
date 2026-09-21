@@ -121,29 +121,105 @@ button {
 
 /* ---------- Toolbar ---------- */
 
+/*
+ * The toolbar is a stack of rows, so phones can give the date range its own
+ * line and no control ever has to compete for horizontal space. Desktop keeps
+ * a single row, which reads like the original left/right layout.
+ */
 .toolbar {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
+  flex-direction: column;
+  gap: 8px;
   padding: 10px 16px;
   border-bottom: 1px solid var(--border-subtle);
   background: var(--bg);
   flex-shrink: 0;
 }
 
-.toolbar-left {
+.toolbar-row {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   min-width: 0;
 }
 
-.app-title {
-  font-size: 15px;
-  font-weight: 600;
-  margin: 0 8px 0 0;
-  letter-spacing: -0.01em;
+/* Pushes the trailing controls over to the right edge. */
+.toolbar-spacer {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/*
+ * The date range. Desktop shows it inline in the main row (right after the
+ * prev/next arrows); phones give it a full-width line of its own via
+ * `order` + `flex-basis` in the mobile block below, so it can never be
+ * squeezed between buttons.
+ */
+.toolbar-row-date {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+/*
+ * Shared button for every toolbar control — Today, prev/next, Day|Week, Sync,
+ * Settings and Reload.
+ *
+ * Sized by `height` + `padding` rather than a fixed width on purpose: a
+ * control carrying a label ("Sync") and one carrying only an icon both fit
+ * their content, so a label can never overflow its button or overlap a
+ * neighbouring control.
+ */
+.toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+
+.toolbar-btn:hover:not(:disabled) {
+  background: var(--surface-hover);
+  border-color: #33333b;
+  color: var(--text);
+}
+
+.toolbar-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.toolbar-btn.error {
+  color: var(--now);
+  border-color: rgba(255, 92, 122, 0.4);
+}
+
+.toolbar-btn.error:hover:not(:disabled) {
+  background: rgba(255, 92, 122, 0.08);
+  border-color: rgba(255, 92, 122, 0.55);
+}
+
+/* Square, label-free variant. */
+.toolbar-btn.icon-only {
+  width: 32px;
+  padding: 0;
+}
+
+.toolbar-btn .spin {
+  animation: sync-spin 0.9s linear infinite;
+}
+
+.today-btn {
+  font-weight: 500;
 }
 
 .range-label {
@@ -247,69 +323,6 @@ button {
 
 /* ---------- Sync control ---------- */
 
-.sync-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border-radius: 6px;
-  border: 1px solid var(--border);
-  background: var(--surface);
-  color: var(--text-secondary);
-  font-size: 12.5px;
-  margin-right: 10px;
-  transition: background 0.12s, border-color 0.12s, color 0.12s;
-}
-
-.sync-btn:hover:not(:disabled) {
-  background: var(--surface-hover);
-  border-color: #33333b;
-  color: var(--text);
-}
-
-.sync-btn:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-
-.sync-btn.error {
-  color: var(--now);
-  border-color: rgba(255, 92, 122, 0.4);
-}
-
-.sync-btn.error:hover:not(:disabled) {
-  background: rgba(255, 92, 122, 0.08);
-  border-color: rgba(255, 92, 122, 0.55);
-}
-
-.sync-btn .spin {
-  animation: sync-spin 0.9s linear infinite;
-}
-/* ---------- Reload from server ---------- */
-
-.reload-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border-radius: 6px;
-  border: 1px solid var(--border);
-  background: var(--surface);
-  color: var(--text-secondary);
-  font-size: 12.5px;
-  transition: background 0.12s, border-color 0.12s, color 0.12s;
-}
-
-.reload-btn:hover:not(:disabled) {
-  background: var(--surface-hover);
-  border-color: #33333b;
-  color: var(--text);
-}
-
-.reload-btn .spin {
-  animation: sync-spin 0.9s linear infinite;
-}
-
 @keyframes sync-spin {
   from {
     transform: rotate(0deg);
@@ -326,6 +339,42 @@ button {
   overflow-y: auto;
   overflow-x: hidden;
   min-height: 0;
+  /* Keeps momentum scrolling on iOS while swipes navigate the grid. */
+  -webkit-overflow-scrolling: touch;
+}
+
+/*
+ * Swipe feedback: a short slide in from the direction of travel, so a swipe
+ * reads as a navigation rather than an accidental scroll.
+ */
+.calendar-pane.swipe-next {
+  animation: pane-slide-in-right 0.18s ease-out;
+}
+
+.calendar-pane.swipe-prev {
+  animation: pane-slide-in-left 0.18s ease-out;
+}
+
+@keyframes pane-slide-in-right {
+  from {
+    opacity: 0.4;
+    transform: translateX(16px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes pane-slide-in-left {
+  from {
+    opacity: 0.4;
+    transform: translateX(-16px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 .grid-inner {
@@ -409,6 +458,12 @@ button {
   position: relative;
   border-right: 1px solid var(--border-subtle);
   min-width: 0;
+  /*
+   * Allow panning (so the grid scrolls) while disabling double-tap zoom. That
+   * removes the ~300ms tap delay and stops a scroll gesture from being
+   * mistaken for the tap that creates a new event.
+   */
+  touch-action: manipulation;
 }
 
 .grid-day:last-child {
@@ -707,7 +762,6 @@ input[type='time'] {
 
 @media (min-width: 701px) and (max-width: 720px) {
   .range-label,
-  .app-title,
   .header-day {
     display: none;
   }
@@ -762,6 +816,105 @@ input[type='time'] {
   color: var(--text-faint);
 }
 
+.task-count-overdue {
+  color: var(--now);
+}
+
+/* ---------- Task filter ---------- */
+
+.task-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: 8px 10px 0;
+}
+
+.task-search-icon {
+  position: absolute;
+  left: 20px;
+  color: var(--text-faint);
+  pointer-events: none;
+}
+
+.task-search input {
+  width: 100%;
+  padding: 7px 28px 7px 30px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12.5px;
+}
+
+.task-search input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.task-search input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.task-search-clear {
+  position: absolute;
+  right: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  color: var(--text-faint);
+}
+
+.task-search-clear:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+/* ---------- Task groups ---------- */
+
+.task-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.task-group-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+  padding: 2px 2px 0;
+}
+
+.task-group-label.overdue {
+  color: var(--now);
+}
+
+/* Overdue cards get a red left edge so they stand out in a long list. */
+.task-card.overdue {
+  border-left: 3px solid var(--now);
+}
+
+.task-due.overdue {
+  color: var(--now);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.task-overdue-badge {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: rgba(255, 92, 122, 0.16);
+  color: var(--now);
+}
+
 .task-new-btn {
   margin-left: auto;
   display: inline-flex;
@@ -777,6 +930,99 @@ input[type='time'] {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+/* ---------- Task filter ---------- */
+
+.task-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin: 0 10px 4px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+}
+
+.task-search:focus-within {
+  border-color: var(--accent);
+}
+
+.task-search-icon {
+  flex-shrink: 0;
+  color: var(--text-faint);
+}
+
+.task-search input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 12.5px;
+  padding: 7px 6px;
+  outline: none;
+}
+
+.task-search input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.task-search-clear {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  color: var(--text-faint);
+}
+
+.task-search-clear:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+/* ---------- Overdue grouping ---------- */
+
+.task-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.task-group-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.task-group-label.overdue,
+.task-count-overdue {
+  color: var(--now);
+}
+
+.task-card.overdue {
+  border-left: 3px solid var(--now);
+}
+
+.task-overdue-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(255, 92, 122, 0.16);
+  color: var(--now);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  vertical-align: middle;
 }
 
 .task-panel-footer {
@@ -1044,7 +1290,7 @@ input[type='time'] {
     width: 100%;
     max-height: none;
   }
-  .toolbar-left .range-label {
+  .range-label {
     white-space: normal;
   }
 }
@@ -1148,29 +1394,40 @@ input[type='time'] {
     background: var(--surface-hover);
   }
 
-  /* Toolbar: nav row + date row, no horizontal overflow */
+  /*
+   * Toolbar on phones: the main row holds Today, prev/next, Day|Week, Sync and
+   * the two icon buttons; the date range gets the second row all to itself so
+   * it can never be squeezed or overlapped.
+   */
   .app.mobile .toolbar {
-    flex-wrap: wrap;
-    gap: 6px 10px;
-    padding-top: calc(10px + 4px);
+    gap: 6px;
+    padding-top: 14px;
     padding-bottom: 8px;
     padding-left: calc(12px + var(--sal));
     padding-right: calc(12px + var(--sar));
     border-bottom: 1px solid var(--border-subtle);
   }
 
-  .app.mobile .toolbar-left {
-    flex: 1 1 auto;
-    min-width: 0;
+  .app.mobile .toolbar-row {
+    gap: 6px;
+    /*
+     * Wrap rather than overflow: rows of icon-sized buttons fit on a 360px
+     * phone, and a narrower screen wraps to a second line instead of letting
+     * labels collide.
+     */
+    flex-wrap: wrap;
   }
 
-  .app.mobile .toolbar-right {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    width: 100%;
-    flex-wrap: wrap;
+  /* Square tap targets without letting the row overflow on a 320px screen. */
+  .app.mobile .toolbar-btn {
+    height: 38px;
+    padding: 0 10px;
+    border-radius: 8px;
+  }
+
+  .app.mobile .toolbar-btn.icon-only {
+    width: 38px;
+    padding: 0;
   }
 
   .app.mobile .toolbar .nav-group {
@@ -1178,47 +1435,29 @@ input[type='time'] {
   }
 
   .app.mobile .toolbar .range-label {
-    display: none;
-  }
-
-  .app.mobile .toolbar .toolbar-date {
     font-size: 13px;
-    color: var(--text-secondary);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    flex: 1;
-    min-width: 0;
   }
 
-  .toolbar-date[aria-hidden='true'] {
-    display: none;
-  }
-
-  .app.mobile .icon-btn {
-    width: 38px;
-    height: 38px;
-    border-radius: 8px;
-  }
-
-  .app.mobile .app-title {
-    font-size: 15px;
+  .app.mobile .toolbar-row-date {
+    /* The range is decorative-adjacent — let it shrink rather than wrap. */
+    order: 99;
+    flex: 1 1 100%;
+    min-height: 18px;
   }
 
   .app.mobile .view-toggle .view-btn {
-    padding: 8px 14px;
+    padding: 8px 12px;
     font-size: 13px;
   }
+}
 
-  .app.mobile .sync-btn {
-    padding: 8px 12px;
-    margin-right: 0;
-  }
-
-  .app.mobile .btn,
-  .app.mobile .sync-btn {
-    min-height: 38px;
-  }
+/* Red dot marking overdue tasks on the Tasks tab. */
+.mobile-nav-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--now);
+  box-shadow: 0 0 5px rgba(255, 92, 122, 0.7);
 }
 @media (max-width: 700px) {
   /* Calendar: single-day full-width by default; week view scrolls sideways */
