@@ -14,6 +14,7 @@ import { loadSnapshot, saveSnapshot } from './storage/storage';
 import { useScheduleSync } from './integrations/useScheduleSync';
 import { Settings } from './components/Settings';
 import { loadFromServer, saveToServer } from './serverStorage';
+import { usePwaInstall } from './pwa';
 
 const uid = (prefix: string) =>
   `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -149,8 +150,51 @@ export default function App() {
   const [isNewTask, setIsNewTask] = useState(false);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  // PWA install state — drives the "Add to home screen" banner. Dismissal
+  // lasts for the session only (so a future visit can still offer it).
+  const { state: pwaState, install: pwaInstall } = usePwaInstall();
+  const [installDismissed, setInstallDismissed] = useState(
+    () => sessionStorage.getItem('calendar-app/installDismissed') === '1',
+  );
+  const dismissInstall = () => {
+    sessionStorage.setItem('calendar-app/installDismissed', '1');
+    setInstallDismissed(true);
+  };
+  // OLED theme state (persisted separately from the main data snapshot so
+  // it survives across devices via localStorage but never touches the server)
+  const [oledMode, setOledMode] = useState<boolean>(() => {
+    try { return localStorage.getItem('calendar-app/oledMode') === 'true'; } catch {/* ignore */}
+    return false;
+  });
+  const [autoOledMode, setAutoOledMode] = useState<boolean>(() => {
+    try { return localStorage.getItem('calendar-app/autoOledMode') === 'true'; } catch {/* ignore */}
+    return false;
+  });
+  const [oledModeStart, setOledModeStart] = useState<string>(() => {
+    try { return localStorage.getItem('calendar-app/oledModeStart') ?? '22:00'; } catch {/* ignore */}
+    return '22:00';
+  });
+  const [oledModeEnd, setOledModeEnd] = useState<string>(() => {
+    try { return localStorage.getItem('calendar-app/oledModeEnd') ?? '07:00'; } catch {/* ignore */}
+    return '07:00';
+  });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const now = new Date();
+
+  // OLED is on when explicitly enabled, or automatically during the
+  // configured night window (which may wrap past midnight, e.g. 22:00–07:00).
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  const oledActive = useMemo(() => {
+    if (oledMode) return true;
+    if (!autoOledMode) return false;
+    const [sh, sm] = oledModeStart.split(':').map(Number);
+    const [eh, em] = oledModeEnd.split(':').map(Number);
+    const start = sh * 60 + sm;
+    const end = eh * 60 + em;
+    return start <= end
+      ? nowMinutes >= start && nowMinutes < end
+      : nowMinutes >= start || nowMinutes < end;
+  }, [oledMode, autoOledMode, oledModeStart, oledModeEnd, nowMinutes]);
 
   // On mount, try to load the full dataset from the server. The server is
   // the source of truth — it lets us sync events/tasks across devices.
@@ -554,7 +598,11 @@ export default function App() {
   const overdueTaskCount = tasks.filter((t) => isOverdue(t)).length;
 
   return (
-    <div className={`app with-tasks${isMobile ? ' mobile' : ''}${loading ? ' loading' : ''}`}>
+    <div
+      className={`app with-tasks${isMobile ? ' mobile' : ''}${loading ? ' loading' : ''}${
+        oledActive ? ' oled-mode' : ''
+      }`}
+    >
       {loading && (
         <div className="app-loading-overlay" aria-hidden={!loading}>
           <div className="app-loading-spinner" />
@@ -667,9 +715,44 @@ export default function App() {
       {settingsOpen && (
         <Settings
           feedUrl={feedUrl}
+          oledMode={oledMode}
+          autoOledMode={autoOledMode}
+          oledModeStart={oledModeStart}
+          oledModeEnd={oledModeEnd}
           onSave={handleSaveSettings}
+          onOledToggle={(on) => {
+            setOledMode(on);
+            try { localStorage.setItem('calendar-app/oledMode', String(on)); } catch {/* ignore */}
+          }}
+          onAutoOledToggle={(on) => {
+            setAutoOledMode(on);
+            try { localStorage.setItem('calendar-app/autoOledMode', String(on)); } catch {/* ignore */}
+          }}
+          onOledWindowChange={(start, end) => {
+            setOledModeStart(start);
+            setOledModeEnd(end);
+            try {
+              localStorage.setItem('calendar-app/oledModeStart', start);
+              localStorage.setItem('calendar-app/oledModeEnd', end);
+            } catch {/* ignore */}
+          }}
           onClose={() => setSettingsOpen(false)}
         />
+      )}
+      {pwaState === 'available' && !installDismissed && (
+        <div className="install-banner" role="dialog" aria-label="Install app">
+          <span className="install-text">Install Calendar for offline use</span>
+          <button className="btn primary" onClick={pwaInstall}>
+            Install
+          </button>
+          <button
+            className="icon-btn"
+            aria-label="Dismiss install prompt"
+            onClick={dismissInstall}
+          >
+            ✕
+          </button>
+        </div>
       )}
       {toasts.map((t) => (
         <div key={t.id} className="toast">

@@ -1247,6 +1247,148 @@ input[type='time'] {
   border-color: var(--accent);
 }
 
+/* ---------- Settings UI ---------- */
+
+.settings-section {
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 14px;
+  margin-top: 2px;
+}
+
+.settings-section + .settings-section {
+  border-top: none;
+  padding-top: 10px;
+  margin-top: 10px;
+}
+
+.settings-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+  margin-bottom: 6px;
+}
+
+.settings-section-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+  margin: 0 0 12px;
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 0;
+}
+
+.settings-row-label {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text);
+  min-width: 0;
+}
+
+.settings-row-group {
+  padding-left: 20px;
+  margin-left: 20px;
+  border-left: 1px solid var(--border-subtle);
+}
+
+.settings-hint {
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+/* Toggle switch */
+.switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.switch input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.switch-track {
+  width: 36px;
+  height: 20px;
+  background: var(--border);
+  border-radius: 10px;
+  transition: background 0.15s;
+  position: relative;
+}
+
+.switch-track::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  background: var(--text-faint);
+  border-radius: 50%;
+  transition: transform 0.15s, background 0.15s;
+}
+
+.switch input:checked + .switch-track {
+  background: var(--accent);
+}
+
+.switch input:checked + .switch-track::after {
+  transform: translateX(16px);
+  background: #fff;
+}
+
+.switch input:focus-visible + .switch-track {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.switch input:disabled + .switch-track {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Time picker pair (for OLED night window) */
+.time-picker-pair {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.time-picker {
+  width: 88px;
+  padding: 4px 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  color-scheme: dark;
+  outline: none;
+}
+
+.time-picker:focus {
+  border-color: var(--accent);
+}
+
+.time-picker-sep {
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
 /* ---------- Toasts ---------- */
 
 .toast {
@@ -1276,6 +1418,165 @@ input[type='time'] {
     transform: translateX(-50%) translateY(0);
   }
 }
+/* ---------- OLED theme ---------- */
+
+/*
+ * The base palette is already pure-black AMOLED (#000000), which is the
+ * starting point for an OLED theme. OLED mode adds three refinements that
+ * matter specifically on OLED/AMOLED panels:
+ *
+ *   1. Darker accent + surface colours at night (or when manually enabled) so
+ *      fewer pixels light up and the panel draws less power.
+ *   2. Burn-in protection for the current-time indicator — the red line/dot
+ *      is the single most constant bright pixel on the screen. In OLED mode it
+ *      pulses and fades so it cannot imprint.
+ *   3. Reduced backdrop blur in dialogs (blur is expensive on OLED and the
+ *      black backdrop already provides sufficient separation).
+ *
+ * The mode is exposed in Settings as a manual toggle plus an optional
+ * auto-activation that kicks in between sunset and sunrise (default 18:00-06:00
+ * local time, adjustable there).
+ */
+
+/* When OLED mode is active, tone everything down. */
+.app.oled-mode {
+  --accent: #5a6ad0;
+  --accent-muted: rgba(90, 106, 208, 0.10);
+  --surface: #080809;
+  --surface-raised: #0d0d10;
+  --surface-hover: #111116;
+  --border: #1c1c22;
+  --border-subtle: #121216;
+  --text: #d4d4da;
+  --text-secondary: #8a8a95;
+  --text-faint: #4a4a54;
+  --now: #d94a5e;
+}
+
+/*
+ * Burn-in protection: the current-time indicator pulses gently so the single
+ * brightest pixel on the screen is never static. Only active in OLED mode.
+ */
+.app.oled-mode .now-indicator {
+  background: var(--now);
+  animation: now-indicator-pulse 4s ease-in-out infinite;
+  box-shadow: 0 0 4px rgba(255, 92, 122, 0.35);
+}
+
+.app.oled-mode .now-dot {
+  background: var(--now);
+  animation: now-dot-pulse 4s ease-in-out infinite;
+}
+
+@keyframes now-indicator-pulse {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 1; }
+}
+
+@keyframes now-dot-pulse {
+  0%, 100% { opacity: 0.45; transform: scale(0.85); }
+  50%      { opacity: 1;   transform: scale(1.1); }
+}
+
+/*
+ * Reduce backdrop blur in dialogs — the black backdrop is enough separation,
+ * and blur is a non-trivial GPU cost on OLED panels (especially mobiles).
+ * Also dim the dialog surfaces slightly.
+ */
+.app.oled-mode .dialog-backdrop {
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.app.oled-mode .dialog {
+  background: var(--surface-raised);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.9);
+}
+
+/*
+ * Event blocks: slightly dimmer fills in OLED mode so colour blocks don't
+ * light up large areas of the screen.
+ */
+.app.oled-mode .event-block.color-blue   { background: rgba(91, 124, 250, 0.08);  border-color: rgba(91, 124, 250, 0.30);  color: #9aabf5; }
+.app.oled-mode .event-block.color-green  { background: rgba(62, 207, 142, 0.06);  border-color: rgba(62, 207, 142, 0.28);  color: #6fdcae; }
+.app.oled-mode .event-block.color-amber  { background: rgba(232, 176, 75, 0.06);  border-color: rgba(232, 176, 75, 0.28);  color: #dba86a; }
+.app.oled-mode .event-block.color-red    { background: rgba(240, 99, 111, 0.06);  border-color: rgba(240, 99, 111, 0.28);  color: #e8939b; }
+.app.oled-mode .event-block.color-purple { background: rgba(169, 124, 245, 0.07); border-color: rgba(169, 124, 245, 0.30); color: #b398e8; }
+.app.oled-mode .event-block.color-cyan   { background: rgba(69, 196, 216, 0.06);  border-color: rgba(69, 196, 216, 0.28);  color: #74c9d6; }
+
+/*
+ * Toasts: slightly less prominent in OLED mode (they're transient anyway).
+ */
+.app.oled-mode .toast {
+  background: var(--surface-raised);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.6);
+}
+
+/*
+ * Task priority colours: softer in OLED mode.
+ */
+.app.oled-mode .prio-high   { background: var(--now);    box-shadow: 0 0 4px rgba(255, 92, 122, 0.35); }
+.app.oled-mode .prio-medium { background: var(--ev-amber); }
+.app.oled-mode .prio-low    { background: var(--text-faint); }
+
+/*
+ * Sync/Reload error state: red is less aggressive in OLED mode.
+ */
+.app.oled-mode .toolbar-btn.error {
+  color: var(--now);
+  border-color: rgba(255, 92, 122, 0.25);
+}
+.app.oled-mode .toolbar-btn.error:hover:not(:disabled) {
+  background: rgba(255, 92, 122, 0.05);
+  border-color: rgba(255, 92, 122, 0.40);
+}
+
+/*
+ * Overdue badge: softer in OLED mode.
+ */
+.app.oled-mode .task-overdue-badge {
+  background: rgba(255, 92, 122, 0.10);
+  color: var(--now);
+}
+.app.oled-mode .task-due.overdue {
+  color: var(--now);
+}
+
+/*
+ * Respect the system's reduced-transparency preference: when the OS requests
+ * no translucency (common on OLED/accessibility setups), drop backdrop-filter
+ * and alpha overlays everywhere. The app already uses a black backdrop, so this
+ * just removes the blur layer.
+ */
+@media (prefers-reduced-transparency: reduce) {
+  .dialog-backdrop {
+    background: rgba(0, 0, 0, 0.75);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  .grid-header {
+    background: #000000;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
+/*
+ * Smooth transitions when OLED mode toggles — only transition what changes,
+ * so the switch feels instant rather than sluggish.
+ */
+.app.oled-mode,
+.app.oled-mode .toolbar-btn,
+.app.oled-mode .now-indicator,
+.app.oled-mode .now-dot,
+.app.oled-mode .event-block,
+.app.oled-mode .toast,
+.app.oled-mode .dialog,
+.app.oled-mode .dialog-backdrop {
+  transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
 
 /* ---------- Tablet: keep calendar+tasks side by side, slightly tighter ---------- */
 

@@ -1,0 +1,36 @@
+/* ---------- PWA install banner ---------- */
+
+.install-banner {
+  position: fixed;
+  left: 50%;
+  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--surface-raised, #16161c);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+  max-width: calc(100vw - 24px);
+}
+
+.install-text {
+  font-size: 13px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 700px) {
+  .install-banner {
+    /* keep clear of the mobile nav bar and FAB */
+    bottom: calc(140px + env(safe-area-inset-bottom, 0px));
+  }
+  .install-text {
+    flex: 1;
+  }
+}

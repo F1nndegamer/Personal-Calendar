@@ -4,11 +4,18 @@ import { APP_VERSION } from '../version';
 
 interface Props {
   feedUrl: string;
+  oledMode: boolean;
+  autoOledMode: boolean;
+  oledModeStart: string;   // HH:MM
+  oledModeEnd: string;     // HH:MM
   onSave: (url: string) => void;
+  onOledToggle: (on: boolean) => void;
+  onAutoOledToggle: (on: boolean) => void;
+  onOledWindowChange: (start: string, end: string) => void;
   onClose: () => void;
 }
 
-export function Settings({ feedUrl, onSave, onClose }: Props) {
+export function Settings({ feedUrl, oledMode, autoOledMode, oledModeStart, oledModeEnd, onSave, onOledToggle, onAutoOledToggle, onOledWindowChange, onClose }: Props) {
   const [value, setValue] = useState(feedUrl);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -64,6 +71,68 @@ export function Settings({ feedUrl, onSave, onClose }: Props) {
           The URL is stored locally in your browser and on the server
           (for cross-device sync).
         </p>
+
+        {/* ---------- OLED theme ---------- */}
+        <div className="settings-section">
+          <div className="settings-section-title">OLED theme</div>
+          <p className="settings-section-desc">
+            Pure-black AMOLED palette with dimmed night colours, pulsing
+            current-time indicator (burn-in prevention), and reduced backdrop
+            blur. Especially useful on phones and tablets with OLED panels.
+          </p>
+
+          <label className="settings-row">
+            <span className="settings-row-label">OLED mode</span>
+            <label className="switch">
+              <input
+                type="checkbox"
+                checked={oledMode}
+                onChange={(e) => onOledToggle(e.target.checked)}
+              />
+              <span className="switch-track" />
+            </label>
+          </label>
+
+          <label className="settings-row">
+            <span className="settings-row-label">Auto (night hours)</span>
+            <label className="switch">
+              <input
+                type="checkbox"
+                checked={autoOledMode}
+                onChange={(e) => onAutoOledToggle(e.target.checked)}
+                disabled={!oledMode}
+              />
+              <span className="switch-track" />
+            </label>
+            {!oledMode && <span className="settings-hint">Enable OLED mode first</span>}
+          </label>
+
+          {autoOledMode && (
+            <div className="settings-row settings-row-group">
+              <span className="settings-row-label">Night window</span>
+              <div className="time-picker-pair">
+                <input
+                  type="time"
+                  value={oledModeStart}
+                  onChange={(e) => onOledWindowChange(e.target.value, oledModeEnd)}
+                  className="time-picker"
+                  aria-label="OLED mode start time"
+                />
+                <span className="time-picker-sep">→</span>
+                <input
+                  type="time"
+                  value={oledModeEnd}
+                  onChange={(e) => onOledWindowChange(oledModeStart, e.target.value)}
+                  className="time-picker"
+                  aria-label="OLED mode end time"
+                />
+              </div>
+              <span className="settings-hint">
+                Local device time. Leave end before start for all-day mode.
+              </span>
+            </div>
+          )}
+        </div>
 
         <div className="dialog-footer">
           <div className="spacer" />
