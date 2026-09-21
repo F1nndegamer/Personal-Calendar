@@ -27,7 +27,9 @@ This produces two artefacts:
 
 ## 2. Copy artefacts to the Pi
 
-The Pi is assumed to live at `/home/finn/Documents/Sites/personal-calendar`.
+The Pi pulls updates itself from GitHub via the
+`personal-calendar-update` systemd timer (see §8). Manual deploys are
+only needed for first-time setup or emergencies:
 
 ```bash
 # On the development machine
@@ -174,8 +176,47 @@ BEGIN:VCALENDAR
 …
 ```
 
-## 7. Security notes
+## 7. Automatic updates from GitHub (systemd timer)
 
+The Pi polls GitHub every 5 minutes and rebuilds itself when `main`
+moves. Two units are involved:
+
+- `personal-calendar-update.service` (oneshot) — runs
+  `/usr/local/bin/update-personal-calendar`
+- `personal-calendar-update.timer` — `OnBootSec=2min`,
+  `OnUnitActiveSec=5min`
+
+The update script keeps its state in
+`~/.personal-calendar-deployed-commit`: the commit hash of the build
+currently served from `/var/www/calendar`. On each run it fetches
+`origin/main` and compares against the **last deployed** commit — not
+against the local checkout — so the service is self-healing: a checkout
+that advanced without a successful deploy will still be deployed on the
+next run instead of being skipped forever.
+
+The script needs a `WorkingDirectory` (via a drop-in at
+`/etc/systemd/system/personal-calendar-update.service.d/workdir.conf`),
+because the base unit has none and `git` would otherwise fail with
+`fatal: not a git repository`:
+
+```ini
+[Service]
+WorkingDirectory=/home/finn/personal-calendar
+```
+
+Debugging a stuck deploy:
+
+```bash
+# journal of recent runs (exit 128 + "not a git repository" = workdir issue)
+journalctl -u personal-calendar-update.service --since "1 hour ago"
+# what is deployed vs what is checked out
+cat ~/.personal-calendar-deployed-commit
+cd ~/personal-calendar && git rev-parse HEAD origin/main
+# what is actually served
+grep -o 'assets/index-[A-Za-z0-9_-]*\.js' /var/www/calendar/index.html
+```
+
+## 8. Security notes
 - The proxy is bound to `127.0.0.1:3000` only — it is **not**
   reachable from the public internet directly. Only Nginx on the
   same host can call it.
