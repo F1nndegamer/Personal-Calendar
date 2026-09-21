@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
-import { Check, Plus } from 'lucide-react';
-import { isSameDay } from '../calendar/lib';
+import { Check, Plus, Search, X } from 'lucide-react';
+import { formatDue, isOverdue, matchesQuery, sortTasks } from './lib';
 import type { Task } from './types';
 
 interface Props {
@@ -12,53 +12,42 @@ interface Props {
   onTaskDragEnd: () => void;
 }
 
-function isOverdue(task: Task): boolean {
-  if (task.completed || !task.dueDate) return false;
-  const due = new Date(task.dueDate);
-  const now = new Date();
-  return due < now;
-}
-
-function formatDue(dateStr: string): string {
-  const d = new Date(dateStr);
-  const today = new Date();
-  const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
-  if (isSameDay(d, today)) return `Today ${time}`;
-  const tomorrow = new Date(today);
-  tomorrow.setDate(today.getDate() + 1);
-  if (isSameDay(d, tomorrow)) return `Tomorrow ${time}`;
-  // If the time is midnight, the user specified only a date (no time)
-  const hasTime = d.getHours() !== 0 || d.getMinutes() !== 0;
-  const label = d.toLocaleDateString([], { day: 'numeric', month: 'short' });
-  return hasTime ? `${label} ${time}` : label;
-}
-
 export function TaskPanel({ tasks, onToggle, onTaskClick, onNewTask, onTaskDragStart, onTaskDragEnd }: Props) {
   const [showCompleted, setShowCompleted] = useState(false);
+  const [query, setQuery] = useState('');
 
-  const { open, done } = useMemo(() => {
-    const sorted = [...tasks].sort((a, b) => {
-      const prio = { high: 0, medium: 1, low: 2 } as const;
-      const pa = a.completed ? 3 : prio[a.priority];
-      const pb = b.completed ? 3 : prio[b.priority];
-      if (pa !== pb) return pa - pb;
-      const da = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;
-      const db = b.dueDate ? new Date(b.dueDate).getTime() : Infinity;
-      return da - db;
-    });
+  const { overdue, open, done } = useMemo(() => {
+    const sorted = sortTasks(tasks);
+    // Overdue tasks are split into their own group so they can't get buried
+    // further down the list.
     return {
-      open: sorted.filter((t) => !t.completed),
+      overdue: sorted.filter((t) => isOverdue(t)),
+      open: sorted.filter((t) => !t.completed && !isOverdue(t)),
       done: sorted.filter((t) => t.completed),
     };
   }, [tasks]);
 
-    const renderTask = (task: Task) => {
+  const searching = query.trim().length > 0;
+  const filter = (list: Task[]) =>
+    searching ? list.filter((t) => matchesQuery(t, query)) : list;
+
+  const visibleOverdue = filter(overdue);
+  const visibleOpen = filter(open);
+  const visibleDone = filter(done);
+  const totalOpen = overdue.length + open.length;
+  const noMatches =
+    searching &&
+    visibleOverdue.length === 0 &&
+    visibleOpen.length === 0 &&
+    visibleDone.length === 0;
+
+  const renderTask = (task: Task) => {
     const doneSubs = task.subtasks.filter((s) => s.completed).length;
-    const overdue = isOverdue(task);
+    const overdueTask = isOverdue(task);
     return (
       <div
         key={task.id}
-        className={`task-card${task.completed ? ' completed' : ''}${task.eventId ? ' scheduled' : ''}${overdue ? ' overdue' : ''}`}
+        className={`task-card${task.completed ? ' completed' : ''}${task.eventId ? ' scheduled' : ''}${overdueTask ? ' overdue' : ''}`}
         draggable
         onDragStart={(e) => onTaskDragStart(task, e)}
         onDragEnd={onTaskDragEnd}
@@ -80,8 +69,8 @@ export function TaskPanel({ tasks, onToggle, onTaskClick, onNewTask, onTaskDragS
             <span className={`task-priority prio-${task.priority}`} title={`${task.priority} priority`} />
             {task.category && <span className="task-category">{task.category}</span>}
                                     {task.dueDate && (
-              <span className={`task-due${overdue ? ' overdue' : ''}`}>
-                {formatDue(task.dueDate)}{overdue && <span className="task-overdue-badge">OVERDUE</span>}
+              <span className={`task-due${overdueTask ? ' overdue' : ''}`}>
+                {formatDue(task.dueDate)}{overdueTask && <span className="task-overdue-badge">OVERDUE</span>}
               </span>
             )}
             {task.estimatedMinutes && <span className="task-estimate">{task.estimatedMinutes}m</span>}
@@ -107,22 +96,53 @@ export function TaskPanel({ tasks, onToggle, onTaskClick, onNewTask, onTaskDragS
     <aside className="task-panel">
       <div className="task-panel-header">
         <h2>Tasks</h2>
-        <span className="task-count">{open.length} open</span>
+        <span className="task-count">
+          {totalOpen} open
+          {overdue.length > 0 && (
+            <span className="task-count-overdue"> · {overdue.length} overdue</span>
+          )}
+        </span>
         <button className="btn primary task-new-btn" onClick={onNewTask}>
           <Plus size={14} /> New
         </button>
       </div>
+
+      {tasks.length > 0 && (
+        <div className="task-search">
+          <Search size={14} className="task-search-icon" aria-hidden="true" />
+          <input
+            type="search"
+            value={query}
+            placeholder="Filter tasks…"
+            aria-label="Filter tasks"
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          {searching && (
+            <button className="task-search-clear" aria-label="Clear filter" onClick={() => setQuery('')}>
+              <X size={14} />
+            </button>
+          )}
+        </div>
+      )}
+
       <div className="task-list">
-        {open.map(renderTask)}
-        {done.length > 0 && (
+        {visibleOverdue.length > 0 && (
+          <div className="task-group">
+            <div className="task-group-label overdue">Overdue ({visibleOverdue.length})</div>
+            {visibleOverdue.map(renderTask)}
+          </div>
+        )}
+        {visibleOpen.map(renderTask)}
+        {visibleDone.length > 0 && (
           <>
             <button className="btn subtle toggle-completed" onClick={() => setShowCompleted((v) => !v)}>
-              {showCompleted ? 'Hide' : 'Show'} completed ({done.length})
+              {showCompleted ? 'Hide' : 'Show'} completed ({visibleDone.length})
             </button>
-            {showCompleted && done.map(renderTask)}
+            {showCompleted && visibleDone.map(renderTask)}
           </>
         )}
-        {open.length === 0 && done.length === 0 && (
+        {noMatches && <div className="task-empty">No tasks match “{query}”.</div>}
+        {!searching && totalOpen === 0 && done.length === 0 && (
           <div className="task-empty">No tasks yet. Create one to get started.</div>
         )}
       </div>

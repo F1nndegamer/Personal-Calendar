@@ -32,6 +32,12 @@ export interface SyncState {
   syncedFrom: number | null;
   /** End of the last successfully synced range (epoch ms), or null */
   syncedTo: number | null;
+  /** Earliest event the feed itself contained (epoch ms), or null */
+  coverageFrom: number | null;
+  /** Latest event the feed itself contained (epoch ms), or null */
+  coverageTo: number | null;
+  /** Number of events the feed itself contained, or null */
+  coverageCount: number | null;
 }
 
 export interface UseScheduleSyncOptions {
@@ -73,6 +79,9 @@ export function useScheduleSync(options: UseScheduleSyncOptions): ScheduleSync {
     errorMessage: undefined,
     syncedFrom: null,
     syncedTo: null,
+    coverageFrom: null,
+    coverageTo: null,
+    coverageCount: null,
   });
 
   const syncNow = useCallback(async (rangeOverride?: { from: Date; to: Date }) => {
@@ -108,6 +117,18 @@ export function useScheduleSync(options: UseScheduleSyncOptions): ScheduleSync {
       ).events;
       opts.commitEvents(merged);
       opts.persist(merged);
+      // Report what the *feed itself* contained (not the requested range).
+      // Sources like Magister only publish a rolling few-week window, so the
+      // feed's coverage can be far narrower than what was asked for — the UI
+      // surfaces this so a "missing" far-future event is never mysterious.
+      let coverageFrom: number | null = null;
+      let coverageTo: number | null = null;
+      for (const ext of result.events) {
+        const s = new Date(ext.start).getTime();
+        const e = new Date(ext.end).getTime();
+        if (coverageFrom === null || s < coverageFrom) coverageFrom = s;
+        if (coverageTo === null || e > coverageTo) coverageTo = e;
+      }
       const from = range.from.getTime();
       const to = range.to.getTime();
       // Expand the tracked range to cover the union of all fetches ever made.
@@ -130,6 +151,9 @@ export function useScheduleSync(options: UseScheduleSyncOptions): ScheduleSync {
         // was previously reported — and trigger a fresh syncIfNeeded.
         syncedFrom: prev ? Math.min(prev.from, from) : from,
         syncedTo: prev ? Math.max(prev.to, to) : to,
+        coverageFrom,
+        coverageTo,
+        coverageCount: result.events.length,
       });
     } catch (err) {
       setState((prev) => ({

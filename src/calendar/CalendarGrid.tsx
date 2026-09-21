@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   HOUR_HEIGHT,
   addDays,
@@ -12,6 +12,7 @@ import {
 import type { CalendarEvent } from './types';
 import { EventBlock } from './EventBlock';
 import { useEventDrag } from './useEventDrag';
+import { useGridGestures } from './useGridGestures';
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 const GUTTER_WIDTH = 56;
@@ -25,9 +26,11 @@ interface Props {
   onSlotClick: (day: Date, startMin: number) => void;
   /** Called when a task from the task panel is dropped onto a time slot */
   onTaskDrop?: (taskId: string, day: Date, startMin: number) => void;
+  /** Horizontal swipe on the grid: `1` advances, `-1` goes back. */
+  onSwipe?: (direction: -1 | 1) => void;
 }
 
-export function CalendarGrid({ days, events, now, onEventChange, onEventClick, onSlotClick, onTaskDrop }: Props) {
+export function CalendarGrid({ days, events, now, onEventChange, onEventClick, onSlotClick, onTaskDrop, onSwipe }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const dayRefs = useRef<(HTMLElement | null)[]>([]);
@@ -40,6 +43,20 @@ export function CalendarGrid({ days, events, now, onEventChange, onEventClick, o
     onEventChange,
   });
 
+  const minutesAt = useCallback((e: { clientY: number }): number => {
+    const rect = bodyRef.current?.getBoundingClientRect();
+    if (!rect) return 0;
+    return snapMinutes(((e.clientY - rect.top) / rect.height) * 24 * 60);
+  }, []);
+
+  // Create events on *release* only, so swiping to scroll never opens a dialog.
+  const { startGesture } = useGridGestures({
+    onTap: (day, clientY) => {
+      onSlotClick(day, Math.min(minutesAt({ clientY }), 23 * 60 + 30));
+    },
+    onSwipe,
+  });
+
   // scroll to a sensible position on mount (around current time)
   useEffect(() => {
     const el = scrollRef.current;
@@ -48,18 +65,6 @@ export function CalendarGrid({ days, events, now, onEventChange, onEventClick, o
     el.scrollTop = target;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  const minutesAt = (e: { clientY: number }): number => {
-    const rect = bodyRef.current?.getBoundingClientRect();
-    if (!rect) return 0;
-    return snapMinutes(((e.clientY - rect.top) / rect.height) * 24 * 60);
-  };
-
-  const handleSlotPointerDown = (day: Date, e: React.PointerEvent) => {
-    if (e.button !== 0) return;
-    const min = minutesAt(e);
-    onSlotClick(day, Math.min(min, 23 * 60 + 30));
-  };
 
   const nowMin = minutesFromDayStart(now);
 
@@ -131,7 +136,7 @@ export function CalendarGrid({ days, events, now, onEventChange, onEventClick, o
                   className={`grid-day${isToday ? ' today' : ''}${isDropTarget ? ' drop-target' : ''}${
                     dragOverDay === dayIdx ? ' drag-over' : ''
                   }`}
-                  onPointerDown={(e) => handleSlotPointerDown(day, e)}
+                  onPointerDown={(e) => startGesture(day, e)}
                   onDragOver={(e) => {
                     if (!onTaskDrop) return;
                     e.preventDefault();

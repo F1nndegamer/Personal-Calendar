@@ -94,6 +94,61 @@ export function clamp(v: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, v));
 }
 
+/* ---------- Pointer gesture thresholds ---------- */
+
+/** Maximum pointer travel (px) for a gesture to still count as a tap. */
+export const TAP_SLOP_PX = 10;
+/** Maximum duration (ms) for a gesture to still count as a tap. */
+export const TAP_MAX_MS = 700;
+/** Minimum horizontal travel (px) for a gesture to count as a swipe. */
+export const SWIPE_MIN_PX = 56;
+
+export interface Point {
+  x: number;
+  y: number;
+}
+
+/**
+ * Whether a pointer gesture was a deliberate tap rather than the beginning of
+ * a scroll or a drag.
+ *
+ * Both conditions must hold: the pointer stayed within `slop` px of where it
+ * went down (so a scroll never qualifies), and the gesture was shorter than
+ * `maxMs` (so a long-press reserved for event dragging never qualifies).
+ */
+export function isTap(
+  start: Point,
+  end: Point,
+  durationMs: number,
+  slop: number = TAP_SLOP_PX,
+  maxMs: number = TAP_MAX_MS,
+): boolean {
+  if (durationMs < 0 || durationMs > maxMs) return false;
+  return Math.abs(end.x - start.x) <= slop && Math.abs(end.y - start.y) <= slop;
+}
+
+/**
+ * Horizontal swipe direction for a gesture, or `0` when the gesture is not a
+ * swipe.
+ *
+ * A gesture only counts as a swipe when it travels at least `minPx` px
+ * horizontally *and* is clearly more horizontal than vertical. The 1.5× ratio
+ * keeps vertical scrolling in the time grid from ever triggering navigation.
+ *
+ * Returns `1` to advance (swipe left) and `-1` to go back (swipe right).
+ */
+export function swipeDirection(
+  start: Point,
+  end: Point,
+  minPx: number = SWIPE_MIN_PX,
+): -1 | 0 | 1 {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  if (Math.abs(dx) < minPx) return 0;
+  if (Math.abs(dx) < Math.abs(dy) * 1.5) return 0;
+  return dx > 0 ? -1 : 1;
+}
+
 interface Positioned {
   event: CalendarEvent;
   /** 0-based column index among overlapping events */

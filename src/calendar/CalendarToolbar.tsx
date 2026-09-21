@@ -23,12 +23,25 @@ interface Props {
   isMobile?: boolean;
 }
 
+function formatDate(ms: number): string {
+  return new Date(ms).toLocaleDateString([], { day: 'numeric', month: 'short' });
+}
+
 function syncTitle(state: SyncState | undefined, lastSyncAt: string | undefined): string {
   if (state?.errorMessage) return state.errorMessage;
+  const parts: string[] = [];
   if (state?.status === 'success' && lastSyncAt) {
     const t = new Date(lastSyncAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    return `Last synced ${t}`;
+    parts.push(`Last synced ${t}`);
   }
+  // The feed's own coverage — many school feeds only publish a few weeks ahead.
+  if (state?.coverageFrom != null && state?.coverageTo != null) {
+    parts.push(
+      `Feed contains ${state.coverageCount ?? '?'} events (${formatDate(state.coverageFrom)} – ${formatDate(state.coverageTo)}). ` +
+        'Dates beyond this are not published by the feed yet.',
+    );
+  }
+  if (parts.length > 0) return parts.join(' — ');
   if (state?.status === 'error') return 'Sync failed — click to retry';
   return 'Sync schedule';
 }
@@ -61,58 +74,28 @@ export function CalendarToolbar({
   const showSync = !!onSync && syncConfigured !== false;
 
   return (
-    <div className="toolbar">
-      <div className="toolbar-left">
-        <h1 className="app-title">Calendar</h1>
-        <button className="btn today-btn" onClick={onToday} disabled={inRange}>
+    <div className={`toolbar${isMobile ? ' toolbar-mobile' : ''}`}>
+      <div className="toolbar-row toolbar-row-main">
+        <button
+          className="toolbar-btn today-btn"
+          onClick={onToday}
+          disabled={inRange}
+          title="Jump to today"
+        >
           Today
         </button>
         <div className="nav-group">
-          <button className="icon-btn" onClick={onPrev} aria-label="Previous">
+          <button className="toolbar-btn icon-only" onClick={onPrev} aria-label="Previous period" title="Previous">
             <ChevronLeft size={16} />
           </button>
-          <button className="icon-btn" onClick={onNext} aria-label="Next">
+          <button className="toolbar-btn icon-only" onClick={onNext} aria-label="Next period" title="Next">
             <ChevronRight size={16} />
           </button>
         </div>
-        <span className="range-label">{label}</span>
-      </div>
-      <div className="toolbar-right">
-        <span className="toolbar-date" aria-hidden={!isMobile}>
-          {label}
-        </span>
-        <button
-          className="icon-btn"
-          onClick={onSettings}
-          title="Settings"
-          aria-label="Open settings"
-        >
-          <SettingsIcon size={16} />
-        </button>
-        {showSync && (
-          <button
-            className={`sync-btn${syncState?.status === 'error' ? ' error' : ''}`}
-            onClick={onSync}
-            disabled={syncing}
-            title={syncTitle(syncState, syncState?.lastSyncAt)}
-            aria-label="Sync schedule"
-          >
-            <RefreshCw size={14} className={syncing ? 'spin' : ''} />
-            <span>{syncing ? 'Syncing…' : 'Sync'}</span>
-          </button>
-        )}
-        {onReload && (
-          <button
-            className="icon-btn reload-btn"
-            onClick={onReload}
-            title="Reload from server"
-            aria-label="Reload from server"
-          >
-            <RefreshCw size={14} />
-            <span>Reload</span>
-          </button>
-        )}
-        <div className="view-toggle" role="tablist">
+        {/* Desktop shows the range inline; mobile renders it as its own row. */}
+        {!isMobile && <span className="range-label">{label}</span>}
+        <span className="toolbar-spacer" />
+        <div className="view-toggle" role="tablist" aria-label="Calendar view">
           {(['day', 'week'] as const).map((v) => (
             <button
               key={v}
@@ -125,7 +108,46 @@ export function CalendarToolbar({
             </button>
           ))}
         </div>
+        {showSync && (
+          <button
+            className={`toolbar-btn sync-btn${syncState?.status === 'error' ? ' error' : ''}`}
+            onClick={onSync}
+            disabled={syncing}
+            title={syncTitle(syncState, syncState?.lastSyncAt)}
+            aria-label="Sync schedule"
+          >
+            <RefreshCw size={14} className={syncing ? 'spin' : ''} />
+            {/* Icon-only on phones — "Syncing…" would overflow the row. */}
+            {!isMobile && <span>{syncing ? 'Syncing…' : 'Sync'}</span>}
+          </button>
+        )}
+        {onSettings && (
+          <button
+            className="toolbar-btn icon-only"
+            onClick={onSettings}
+            title="Settings"
+            aria-label="Open settings"
+          >
+            <SettingsIcon size={16} />
+          </button>
+        )}
+        {onReload && (
+          <button
+            className="toolbar-btn icon-only"
+            onClick={onReload}
+            title="Reload from server"
+            aria-label="Reload from server"
+          >
+            <RefreshCw size={16} />
+          </button>
+        )}
       </div>
+      {/* Phones get the range on its own row so it never competes for space. */}
+      {isMobile && (
+        <div className="toolbar-row toolbar-row-date">
+          <span className="range-label">{label}</span>
+        </div>
+      )}
     </div>
   );
 }

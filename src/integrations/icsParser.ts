@@ -210,7 +210,12 @@ export function parseIcs(text: string, range?: DateRange): ExternalScheduleEvent
       const endIso = new Date(new Date(startIso).getTime() + durationMs).toISOString();
       if (!overlaps(startIso, endIso, range)) continue;
       events.push({
-        externalId: uid, // namespacing ("magister:<UID>") happens in normalization
+        // All occurrences of a recurring VEVENT share one UID. Suffixing the
+        // occurrence start keeps each occurrence a distinct identity, so
+        // syncExternalEvents() (which keys by externalId) never collapses a
+        // series into a single event. Non-recurring events keep the bare UID,
+        // preserving stable ids across re-syncs.
+        externalId: event.isRecurring() ? `${uid}/${startIso}` : uid,
         subject: firstString(vevent, 'summary') ?? '(no title)',
         start: startIso,
         end: endIso,

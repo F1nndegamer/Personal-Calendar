@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { addDays, addYears, startOfDay, startOfWeek } from './calendar/lib';
 import type { CalendarEvent, CalendarView } from './calendar/types';
 import { CalendarToolbar } from './calendar/CalendarToolbar';
@@ -6,6 +6,7 @@ import { CalendarGrid } from './calendar/CalendarGrid';
 import { EventDialog } from './calendar/EventDialog';
 import type { Task } from './tasks/types';
 import { TaskPanel } from './tasks/TaskPanel';
+import { isOverdue } from './tasks/lib';
 import { TaskDialog } from './tasks/TaskDialog';
 import { QuickAdd } from './quickAdd/QuickAdd';
 import type { ParsedQuickAdd } from './quickAdd/types';
@@ -26,6 +27,52 @@ function prefersPhoneLayout(): boolean {
     typeof window !== 'undefined' && window.matchMedia(PHONE_QUERY).matches
   );
 }
+
+/**
+ * The last-used view, falling back to the screen-appropriate default.
+ *
+ * This is read during the first render (via a lazy `useState` initialiser)
+ * rather than restored from an effect: an effect would render one frame with
+ * the wrong view and then immediately re-render — the "cascading render" that
+ * makes the calendar visibly flicker on load.
+ */
+function getInitialView(): CalendarView {
+  try {
+    const stored = localStorage.getItem('calendar-app/view');
+    if (stored === 'day') return 'day';
+    // A stored 'week' doesn't fit a phone screen, which has room for one day.
+    if (stored === 'week' && !prefersPhoneLayout()) return 'week';
+  } catch {/* ignore */}
+  return prefersPhoneLayout() ? 'day' : 'week';
+}
+
+/**
+ * The last-used anchor, falling back to today (phone) or this week (desktop).
+ * Restored the same way as {@link getInitialView}, for the same reason.
+ */
+function getInitialAnchor(): Date {
+  try {
+    const stored = localStorage.getItem('calendar-app/anchor');
+    if (stored) {
+      const t = new Date(stored).getTime();
+      if (Number.isFinite(t)) return new Date(t);
+    }
+  } catch {/* ignore */}
+  return prefersPhoneLayout() ? startOfDay(new Date()) : startOfWeek(new Date());
+}
+
+/* ---------- Phone-layout media query, as an external store ---------- */
+
+function subscribePhoneQuery(onStoreChange: () => void): () => void {
+  const mq = window.matchMedia(PHONE_QUERY);
+  mq.addEventListener('change', onStoreChange);
+  return () => mq.removeEventListener('change', onStoreChange);
+}
+
+/** Same breakpoint the CSS uses, so layout and logic can never disagree. */
+const getPhoneQuerySnapshot = (): boolean => prefersPhoneLayout();
+
+const getPhoneQueryServerSnapshot = (): boolean => false;
 
 /** True when focus is inside an input, textarea, select, or [contenteditable]. */
 function isEditingElement(el: Element | null): boolean {
@@ -68,18 +115,26 @@ export default function App() {
 
   // Track if a server load has been attempted (so we don't keep retrying
   // on every render if the server is unreachable).
-  const [serverAttempted, setServerAttempted] = useState(false);
+  const [, setServerAttempted] = useState(false);
 
-  const [view, setView] = useState<CalendarView>(() =>
-    prefersPhoneLayout() ? 'day' : 'week',
+  const [view, setView] = useState<CalendarView>(getInitialView);
+  const [anchor, setAnchor] = useState<Date>(getInitialAnchor);
+  const isMobile = useSyncExternalStore(
+    subscribePhoneQuery,
+    getPhoneQuerySnapshot,
+    getPhoneQueryServerSnapshot,
   );
-  const [anchor, setAnchor] = useState(() =>
-    prefersPhoneLayout() ? startOfDay(new Date()) : startOfWeek(new Date()),
-  );
-  const [isMobile, setIsMobile] = useState(prefersPhoneLayout);
-  const [activePane, setActivePane] = useState<'calendar' | 'tasks'>(
-    'calendar',
-  );
+  const [activePane, setActivePane] = useState<'calendar' | 'tasks'>(() => {
+    // Remember which tab the user was on so a reload doesn't always dump them
+    // back on the calendar.
+    try {
+      return localStorage.getItem('calendar-app/pane') === 'tasks'
+        ? 'tasks'
+        : 'calendar';
+    } catch {
+      return 'calendar';
+    }
+  });
 
   // Default dataset — replaced by the loaded snapshot once it arrives.
   const [initial] = useState<{ events: CalendarEvent[]; tasks: Task[] }>(() => {
@@ -124,40 +179,10 @@ export default function App() {
     return () => { cancelled = true; };
   }, []);
 
-  // Restore the last-used view + anchor from localStorage. We do this AFTER
-  // the server load so that anchor updates coming from the server (if any)
-  // take precedence over the localStorage value.
-  useEffect(() => {
-    if (!serverAttempted) return;
-    try {
-      const storedView = localStorage.getItem('calendar-app/view');
-      if (storedView === 'day' || storedView === 'week') {
-        // Don't override if the user is on a phone and the stored view
-        // would be wrong for the screen size
-        if (!prefersPhoneLayout() || storedView === 'day') {
-          setView(storedView);
-        }
-      }
-      const storedAnchor = localStorage.getItem('calendar-app/anchor');
-      if (storedAnchor) {
-        const t = new Date(storedAnchor).getTime();
-        if (Number.isFinite(t)) {
-          setAnchor(new Date(t));
-        }
-      }
-    } catch {/* ignore */}
-  }, [serverAttempted]);
-
-  // Keep the phone-layout flag in sync when the viewport crosses the
-  // breakpoint (rotation, window resize). Layout-only concern: the existing
-  // view/pane state is preserved either way.
-  useEffect(() => {
-    const mq = window.matchMedia(PHONE_QUERY);
-    const onChange = (e: MediaQueryListEvent) => setIsMobile(e.matches);
-    mq.addEventListener('change', onChange);
-    setIsMobile(mq.matches);
-    return () => mq.removeEventListener('change', onChange);
-  }, []);
+  // View and anchor are restored during the first render (see getInitialView /
+  // getInitialAnchor) — restoring them here instead would flash the wrong view
+  // for a frame before switching, which reads as a visible flicker on load.
+  // The phone-layout flag is kept in sync by useSyncExternalStore above.
 
   const handleSaveSettings = (newFeedUrl: string) => {
     const trimmed = newFeedUrl.trim();
@@ -241,15 +266,19 @@ export default function App() {
     try {
       localStorage.setItem('calendar-app/view', view);
       localStorage.setItem('calendar-app/anchor', anchor.toISOString());
+      localStorage.setItem('calendar-app/pane', activePane);
     } catch {/* ignore */}
-  }, [view, anchor]);
+  }, [view, anchor, activePane]);
 
   // External schedule sync — handled by the reusable orchestration hook
   // (see src/integrations/useScheduleSync.ts). It runs once on startup when a
   // real feed is configured, and on manual "Sync". Sync state is separate
-  // from calendar events.
+  // from calendar events. Kept in sync via an effect (not during render) so
+  // the sync callbacks always read the latest committed value.
   const eventsRef = useRef(events);
-  eventsRef.current = events;
+  useEffect(() => {
+    eventsRef.current = events;
+  }, [events]);
   const sync = useScheduleSync({
     getEvents: () => eventsRef.current,
     commitEvents: (next) => setEvents(next),
@@ -277,6 +306,27 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [anchor, sync.configured]);
 
+  // Toast after each successful sync, including what the feed itself covered.
+  // Magister-style feeds only publish a rolling ~3-week window, so saying so
+  // up front prevents "events stop after <date>" confusion.
+  const lastToastSyncRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const s = sync.state;
+    if (s.status !== 'success' || !s.lastSyncAt || s.lastSyncAt === lastToastSyncRef.current) return;
+    lastToastSyncRef.current = s.lastSyncAt;
+    if (s.coverageFrom != null && s.coverageTo != null) {
+      const day = { day: 'numeric', month: 'short' } as const;
+      showToast(
+        `Synced ${s.coverageCount ?? ''} events — feed covers ` +
+          `${new Date(s.coverageFrom).toLocaleDateString([], day)} – ` +
+          `${new Date(s.coverageTo).toLocaleDateString([], day)}`,
+      );
+    } else {
+      showToast('Schedule synced');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sync.state.status, sync.state.lastSyncAt]);
+
   const days = useMemo(() => {
     if (view === 'day') return [startOfDay(anchor)];
     return Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(anchor), i));
@@ -286,6 +336,60 @@ export default function App() {
   const goNext = () => setAnchor((a) => addDays(a, view === 'day' ? 1 : 7));
   const goToday = () =>
     setAnchor(view === 'week' ? startOfWeek(now) : startOfDay(now));
+
+  /** Horizontal swipe on the grid navigates one day (day view) or one week. */
+  const handleGridSwipe = (direction: -1 | 1) => {
+    setAnchor((a) => {
+      const step = view === 'day' ? 1 : 7;
+      return addDays(a, direction * step);
+    });
+  };
+
+  // Desktop keyboard navigation. Kept in a separate effect from the quick-add
+  // shortcut below so the closure always sees the current `view` (which decides
+  // whether an arrow key steps one day or one week) and can be skipped while a
+  // dialog is open.
+  useEffect(() => {
+    const dialogOpen =
+      dialogEvent !== null || dialogTask !== null || quickAddOpen || settingsOpen;
+    if (dialogOpen) return;
+
+    const onKey = (e: KeyboardEvent) => {
+      if (isEditingElement(document.activeElement)) return;
+      // Let the browser keep modifier combinations (Ctrl+←, Cmd+R, …).
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      switch (e.key) {
+        case 'ArrowLeft':
+          e.preventDefault();
+          goPrev();
+          break;
+        case 'ArrowRight':
+          e.preventDefault();
+          goNext();
+          break;
+        case 't':
+        case 'T':
+          e.preventDefault();
+          goToday();
+          break;
+        case 'd':
+        case 'D':
+          e.preventDefault();
+          setView('day');
+          break;
+        case 'w':
+        case 'W':
+          e.preventDefault();
+          setView('week');
+          break;
+        default:
+          break;
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, dialogEvent, dialogTask, quickAddOpen, settingsOpen]);
 
   const handleEventChange = (id: string, start: Date, end: Date) => {
     setEvents((prev) =>
@@ -446,6 +550,8 @@ export default function App() {
     : null;
   /** Open (not completed) tasks — shown as a count on the mobile Tasks tab. */
   const openTaskCount = tasks.filter((t) => !t.completed).length;
+  /** Overdue subset of the open tasks — surfaced so nothing quietly slips. */
+  const overdueTaskCount = tasks.filter((t) => isOverdue(t)).length;
 
   return (
     <div className={`app with-tasks${isMobile ? ' mobile' : ''}${loading ? ' loading' : ''}`}>
@@ -493,6 +599,7 @@ export default function App() {
             onEventClick={handleEventClick}
             onSlotClick={handleSlotClick}
             onTaskDrop={handleTaskDrop}
+            onSwipe={handleGridSwipe}
           />
         </div>
       </div>
@@ -509,11 +616,16 @@ export default function App() {
             Calendar
           </button>
           <button
-            className={`mobile-nav-btn${activePane === 'tasks' ? ' active' : ''}`}
+            className={`mobile-nav-btn${activePane === 'tasks' ? ' active' : ''}${
+              overdueTaskCount > 0 ? ' has-overdue' : ''
+            }`}
             aria-pressed={activePane === 'tasks'}
             onClick={() => setActivePane('tasks')}
           >
             Tasks{openTaskCount > 0 ? ` (${openTaskCount})` : ''}
+            {overdueTaskCount > 0 && (
+              <span className="mobile-nav-dot" aria-label={`${overdueTaskCount} overdue`} />
+            )}
           </button>
         </nav>
       )}

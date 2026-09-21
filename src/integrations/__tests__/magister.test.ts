@@ -59,10 +59,14 @@ describe('parseIcs', () => {
   });
 
   it('expands RRULE occurrences within the range', () => {
-    const occurrences = events.filter((e) => e.externalId === 'roosterwijziging@magister.test');
+    // Each occurrence is its own identity: "<UID>/<occurrence start>" —
+    // sharing one UID across occurrences would make syncExternalEvents()
+    // collapse the whole series into a single event.
+    const occurrences = events.filter((e) => e.externalId.startsWith('roosterwijziging@magister.test/'));
     expect(occurrences.length).toBe(3);
     expect(occurrences[0].start).toBe('2026-09-08T12:00:00.000Z');
     expect(occurrences[2].start).toBe('2026-09-10T12:00:00.000Z');
+    expect(new Set(occurrences.map((e) => e.externalId)).size).toBe(3);
   });
 
   it('reads DTSTAMP and LAST-MODIFIED when present', () => {
