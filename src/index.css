@@ -1898,20 +1898,28 @@ input[type='time'] {
     min-width: 0;
   }
 
-  /* Single day fills the width. Week keeps the existing multi-column grid
-     (min-width 640px) but scrolls horizontally instead of squashing it. */
+  /* Single day fills the width. Week keeps the multi-column grid
+     (min-width 770px) but scrolls horizontally instead of squashing it. */
   .app.mobile.view-day .grid-days .grid-day {
     flex-basis: 100%;
     min-width: 100%;
   }
+
+  /* Week on a phone: readable columns instead of seven crushed ones.
+     ~110px per day gives event titles room; scroll-snap makes swiping
+     land on whole days (the day-step swipe navigation matches this). */
   .app.mobile.view-week .grid-inner {
-    min-width: 640px;
+    min-width: 770px;
   }
-    .app.mobile.view-week .grid-scroll {
+  .app.mobile.view-week .grid-scroll {
     overflow-x: auto;
     /* Subtle visual cue that the week grid scrolls horizontally */
     scrollbar-width: thin;
     scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
+    scroll-snap-type: x proximity;
+  }
+  .app.mobile.view-week .grid-days .grid-day {
+    scroll-snap-align: start;
   }
   .app.mobile.view-week .grid-scroll::-webkit-scrollbar {
     height: 4px;

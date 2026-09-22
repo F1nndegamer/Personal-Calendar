@@ -66,6 +66,24 @@ export function CalendarGrid({ days, events, now, onEventChange, onEventClick, o
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Week view on a phone scrolls sideways — bring today's column into view
+  // whenever the visible week changes, so the user lands on the current day
+  // instead of at the far-left edge (e.g. Monday) every time.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || days.length < 2) return; // day view: nothing to scroll to
+    const idx = days.findIndex((d) => isSameDay(d, now));
+    const col = idx >= 0 ? dayRefs.current[idx] : null;
+    if (!col) return;
+    const rect = col.getBoundingClientRect();
+    const view = el.getBoundingClientRect();
+    // only nudge when today's column is (partly) out of view
+    if (rect.left < view.left || rect.right > view.right) {
+      el.scrollLeft += rect.left + rect.width / 2 - (view.left + view.width / 2);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [days]);
+
   const nowMin = minutesFromDayStart(now);
 
   // static rows — never change, so keep them out of drag re-renders
