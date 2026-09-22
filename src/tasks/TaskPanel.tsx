@@ -2,6 +2,8 @@ import { useMemo, useState } from 'react';
 import { Check, Plus, Search, X } from 'lucide-react';
 import { formatDue, isOverdue, matchesQuery, sortTasks } from './lib';
 import type { Task } from './types';
+import { Pomodoro } from '../pomodoro/Pomodoro';
+
 
 interface Props {
   tasks: Task[];
@@ -13,8 +15,9 @@ interface Props {
 }
 
 export function TaskPanel({ tasks, onToggle, onTaskClick, onNewTask, onTaskDragStart, onTaskDragEnd }: Props) {
-  const [showCompleted, setShowCompleted] = useState(false);
+    const [showCompleted, setShowCompleted] = useState(false);
   const [query, setQuery] = useState('');
+  const [showPomodoro, setShowPomodoro] = useState(false);
 
   const { overdue, open, done } = useMemo(() => {
     const sorted = sortTasks(tasks);
@@ -145,7 +148,28 @@ export function TaskPanel({ tasks, onToggle, onTaskClick, onNewTask, onTaskDragS
         {!searching && totalOpen === 0 && done.length === 0 && (
           <div className="task-empty">No tasks yet. Create one to get started.</div>
         )}
-      </div>
+             </div>
+      {!showPomodoro && (
+        <button
+          className="btn subtle pomodoro-toggle"
+          onClick={() => setShowPomodoro(true)}
+          aria-label="Show Pomodoro timer"
+        >
+          Show Pomodoro timer
+        </button>
+      )}
+      {showPomodoro && (
+        <div className="pomodoro-section">
+          <button
+            className="btn subtle pomodoro-toggle"
+            onClick={() => setShowPomodoro(false)}
+            aria-label="Hide Pomodoro timer"
+          >
+            Hide Pomodoro timer
+          </button>
+          <Pomodoro />
+        </div>
+      )}
       <div className="task-panel-footer">Drag a task onto the calendar to schedule it</div>
     </aside>
   );
