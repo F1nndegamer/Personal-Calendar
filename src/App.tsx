@@ -393,7 +393,9 @@ export default function App() {
   /** Horizontal swipe on the grid navigates one day (day view) or one week. */
   const handleGridSwipe = (direction: -1 | 1) => {
     setAnchor((a) => {
-      const step = view === 'day' ? 1 : 7;
+      // On a phone a swipe means "next/previous day" in both views — the week
+      // grid is a sideways scroller there, so a week-sized jump feels wrong.
+      const step = isMobile || view === 'day' ? 1 : 7;
       return addDays(a, direction * step);
     });
   };
