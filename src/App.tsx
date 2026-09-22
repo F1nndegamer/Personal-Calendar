@@ -16,6 +16,17 @@ import { useScheduleSync } from './integrations/useScheduleSync';
 import { Settings } from './components/Settings';
 import { loadFromServer, saveToServer } from './serverStorage';
 import { usePwaInstall } from './pwa';
+import {
+  EVENT_LEAD_MINUTES,
+  REMINDER_SCAN_MS,
+  TASK_LEAD_MINUTES,
+  describeEventReminder,
+  describeTaskDeadline,
+  notificationPermission,
+  notify,
+  requestNotifyPermission,
+  setNotificationsEnabled,
+} from './notifications/notify';
 
 const uid = (prefix: string) =>
   `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -188,7 +199,94 @@ export default function App() {
     return DEFAULT_BUFFER_MIN;
   });
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [notificationsOn, setNotificationsOn] = useState(() => {
+    try {
+      return localStorage.getItem('calendar-app/notify') === 'on';
+    } catch {
+      return false;
+    }
+  });
+  const [notifyPermission, setNotifyPermission] = useState(notificationPermission());
   const now = new Date();
+
+  /** Enable/disable notifications; on first enable, request browser permission. */
+  const handleNotificationsToggle = async (on: boolean) => {
+    if (on) {
+      const granted = await requestNotifyPermission();
+      setNotifyPermission(notificationPermission());
+      setNotificationsOn(granted);
+      setNotificationsEnabled(granted);
+      showToast(granted ? 'Notifications on' : 'Notifications blocked — check browser settings');
+    } else {
+      setNotificationsOn(false);
+      setNotificationsEnabled(false);
+      showToast('Notifications off');
+    }
+  };
+
+  // ---- Notifications: upcoming class + task deadline reminders ----
+  // The scan runs when data changes and on a one-minute tick while the app
+  // is open. Each reminder fires at most once per (id, minute) via
+  // sessionStorage, so re-renders never double-notify.
+  const notifiedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (notificationPermission() !== 'granted') return;
+    const notified = notifiedRef.current;
+    const scan = () => {
+      const t = Date.now();
+      const tag = (key: string) => `cal-${key}`;
+      for (const ev of events) {
+        const start = new Date(ev.start).getTime();
+        const delta = start - t;
+        // inside the lead window and still in the future
+        if (delta > 0 && delta <= EVENT_LEAD_MINUTES * 60_000) {
+          const key = `${tag(ev.id)}@${new Date(ev.start).toISOString()}`;
+          if (!notified.has(key)) {
+            notified.add(key);
+            const m = describeEventReminder(ev);
+            notify(m.title, m.body, tag(ev.id));
+          }
+        }
+      }
+      for (const task of tasks) {
+        if (task.completed || !task.dueDate) continue;
+        const due = new Date(task.dueDate).getTime();
+        const delta = due - t;
+        if (delta > 0 && delta <= TASK_LEAD_MINUTES * 60_000) {
+          const key = `${tag(task.id)}@${task.dueDate}`;
+          if (!notified.has(key)) {
+            notified.add(key);
+            const m = describeTaskDeadline(task);
+            notify(m.title, m.body, tag(task.id));
+          }
+        }
+      }
+    };
+    scan();
+    const id = window.setInterval(scan, REMINDER_SCAN_MS);
+    return () => window.clearInterval(id);
+  }, [events, tasks]);
+
+  // Ask for notification permission on the first real interaction — browsers
+  // require a user gesture, and prompting on load is bad practice anyway.
+  useEffect(() => {
+    try {
+      if (localStorage.getItem('calendar-app/notify') !== 'on') return;
+      if (notificationPermission() === 'default') {
+        const once = () => {
+          void requestNotifyPermission().then(() => setNotifyPermission(notificationPermission()));
+          window.removeEventListener('pointerdown', once);
+          window.removeEventListener('keydown', once);
+        };
+        window.addEventListener('pointerdown', once, { once: true });
+        window.addEventListener('keydown', once, { once: true });
+        return () => {
+          window.removeEventListener('pointerdown', once);
+          window.removeEventListener('keydown', once);
+        };
+      }
+    } catch {/* ignore */}
+  }, []);
 
   // OLED is on when explicitly enabled, or automatically during the
   // configured night window (which may wrap past midnight, e.g. 22:00–07:00).
@@ -749,6 +847,9 @@ export default function App() {
           autoOledMode={autoOledMode}
           oledModeStart={oledModeStart}
           oledModeEnd={oledModeEnd}
+          notificationsOn={notificationsOn && notifyPermission === 'granted'}
+          notifyPermission={notifyPermission}
+          onNotificationsToggle={(on) => void handleNotificationsToggle(on)}
           onSave={handleSaveSettings}
           onOledToggle={(on) => {
             setOledMode(on);

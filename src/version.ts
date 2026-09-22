@@ -14,7 +14,7 @@
  */
 
 /** The current published version (semver: MAJOR.MINOR.PATCH). */
-export const APP_VERSION = '0.13.0';
+export const APP_VERSION = '0.14.0';
 
 /** How large a change set was. Drives which semver field is incremented. */
 export type BumpLevel = 'major' | 'minor' | 'patch';
@@ -36,6 +36,12 @@ export interface VersionEntry {
  * `APP_VERSION` — `src/__tests__/version.test.ts` enforces this.
  */
 export const VERSION_HISTORY: readonly VersionEntry[] = [
+  {
+    version: '0.14.0',
+    date: '2026-09-22',
+    level: 'minor',
+    summary: 'Notifications: class reminders, task deadline alerts, Pomodoro phase pings; Settings toggle',
+  },
   {
     version: '0.13.0',
     date: '2026-09-22',

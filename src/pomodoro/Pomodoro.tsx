@@ -8,6 +8,7 @@ import {
   SECS_PER_MIN,
   tick,
 } from './logic';
+import { describePomodoroPhase, notify } from '../notifications/notify';
 
 const STORAGE_KEY = 'calendar-app/pomodoro';
 
@@ -74,12 +75,21 @@ export function Pomodoro() {
     });
   }, []);
 
-  // Tick every second while running.
+  // Tick every second while running. When a phase completes, fire a
+  // notification (if enabled) so breaks/focus starts are not missed while
+  // the tab is in the background.
   useEffect(() => {
     if (!state.running) return;
     const id = setInterval(() => {
       apply((s) => {
-        if (s.secondsLeft <= 1) return advancePhase(s, config);
+        if (s.secondsLeft <= 1) {
+          const next = advancePhase(s, config);
+          if (next.phase !== s.phase) {
+            const m = describePomodoroPhase(next.phase, s.completedSessions);
+            notify(m.title, m.body, `pomodoro-${next.phase}`);
+          }
+          return next;
+        }
         return tick(s);
       });
     }, 1000);

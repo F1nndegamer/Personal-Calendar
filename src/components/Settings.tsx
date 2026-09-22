@@ -8,6 +8,11 @@ interface Props {
   autoOledMode: boolean;
   oledModeStart: string;   // HH:MM
   oledModeEnd: string;     // HH:MM
+  /** Whether class/deadline notifications are enabled. */
+  notificationsOn: boolean;
+  /** Current Notification.permission value ('unsupported' when unavailable). */
+  notifyPermission: 'granted' | 'denied' | 'default' | 'unsupported';
+  onNotificationsToggle: (on: boolean) => void;
   onSave: (url: string) => void;
   onOledToggle: (on: boolean) => void;
   onAutoOledToggle: (on: boolean) => void;
@@ -18,7 +23,23 @@ interface Props {
   onClose: () => void;
 }
 
-export function Settings({ feedUrl, oledMode, autoOledMode, oledModeStart, oledModeEnd, onSave, onOledToggle, onAutoOledToggle, onOledWindowChange, bufferMinutes, onBufferMinutesChange, onClose }: Props) {
+export function Settings({
+  feedUrl,
+  oledMode,
+  autoOledMode,
+  oledModeStart,
+  oledModeEnd,
+  notificationsOn,
+  notifyPermission,
+  onNotificationsToggle,
+  onSave,
+  onOledToggle,
+  onAutoOledToggle,
+  onOledWindowChange,
+  bufferMinutes,
+  onBufferMinutesChange,
+  onClose,
+}: Props) {
   const [value, setValue] = useState(feedUrl);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -96,6 +117,40 @@ export function Settings({ feedUrl, oledMode, autoOledMode, oledModeStart, oledM
               <option value={20}>20 minutes</option>
             </select>
           </label>
+        </div>
+
+        {/* ---------- Notifications ---------- */}
+        <div className="settings-section">
+          <div className="settings-section-title">Notifications</div>
+          <p className="settings-section-desc">
+            Reminders for classes starting soon (10 min), tasks due within the
+            hour, and Pomodoro phase changes. Notifications fire while the app
+            is open.
+          </p>
+
+          <label className="settings-row">
+            <span className="settings-row-label">
+              {notifyPermission === 'denied'
+                ? 'Blocked in browser settings'
+                : notifyPermission === 'unsupported'
+                  ? 'Not supported on this device'
+                  : 'Class & task reminders'}
+            </span>
+            <label className="switch">
+              <input
+                type="checkbox"
+                checked={notificationsOn && notifyPermission === 'granted'}
+                disabled={notifyPermission === 'denied' || notifyPermission === 'unsupported'}
+                onChange={(e) => onNotificationsToggle(e.target.checked)}
+              />
+              <span className="switch-track" />
+            </label>
+          </label>
+          {notifyPermission === 'denied' && (
+            <span className="settings-hint">
+              Allow notifications for this site in your browser settings, then reload.
+            </span>
+          )}
         </div>
 
         {/* ---------- OLED theme ---------- */}
