@@ -1997,9 +1997,20 @@ input[type='time'] {
     scrollbar-width: thin;
     scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
     scroll-snap-type: x proximity;
+    /* Snap targets start after the sticky times gutter, not under it. */
+    scroll-padding-left: 46px;
   }
   .app.mobile .calendar-pane.view-week .grid-days .grid-day {
     scroll-snap-align: start;
+    /* Slightly stronger separators so columns read as separate days */
+    border-right-color: var(--border);
+  }
+  /* Today pops; past/future days recede a little for scanning. */
+  .app.mobile .calendar-pane.view-week .grid-day.today {
+    background: color-mix(in srgb, var(--accent) 7%, transparent);
+  }
+  .app.mobile .calendar-pane.view-week .grid-day:not(.today) .event-block {
+    opacity: 0.82;
   }
   .app.mobile .calendar-pane.view-week .grid-scroll::-webkit-scrollbar {
     height: 4px;
