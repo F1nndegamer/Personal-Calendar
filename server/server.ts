@@ -2,9 +2,11 @@
  * Production iCalendar proxy + data storage server.
  *
  * Routes:
- *   GET  /ics?url=…   → proxies to Magister
- *   GET  /api/storage → returns { events, tasks, feedUrl }
- *   PUT  /api/storage → saves { events, tasks, feedUrl }
+ *   GET  /ics?url=…              → proxies to Magister
+ *   GET  /api/storage            → returns { events, tasks, feedUrl }
+ *   PUT  /api/storage            → saves { events, tasks, feedUrl }
+ *   POST /api/webhook/task       → appends a task (Bearer token; disabled
+ *                                  unless WEBHOOK_TOKEN is set)
  *
  * STORAGE_PATH env var controls where data is saved.
  */
@@ -12,6 +14,11 @@ import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { validateProxyUrl } from './proxyCore.js';
 import { readStorage, writeStorage, type StoredData } from './storage.js';
+import {
+  appendWebhookTask,
+  parseWebhookTask,
+  tokenMatches,
+} from './webhook.js';
 
 const HOST = process.env.HOST || '127.0.0.1';
 const PORT = Number(process.env.PORT) || 3000;
@@ -119,14 +126,92 @@ export async function handleIcsRequest(
   res.end(body);
 }
 
+/**
+ * POST /api/webhook/task — remote task creation.
+ * Auth: `Authorization: Bearer <token>` or `?token=`; enabled only when the
+ * WEBHOOK_TOKEN env var is configured.
+ */
+export async function handleWebhookTaskRequest(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  url: string,
+): Promise<void> {
+  const expected = process.env.WEBHOOK_TOKEN;
+  if (!expected) {
+    res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Not Found');
+    return;
+  }
+
+  const qs = new URLSearchParams(url.includes('?') ? url.slice(url.indexOf('?')) : '');
+  const bearer = /^Bearer\s+(.+)$/i.exec(req.headers.authorization ?? '')?.[1] ?? null;
+  if (!tokenMatches(bearer ?? qs.get('token'), expected)) {
+    res.writeHead(401, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ ok: false, error: 'Unauthorized' }));
+    return;
+  }
+
+  let body = '';
+  let overflow = false;
+  req.on('data', (chunk: Buffer) => {
+    body += chunk.toString();
+    if (body.length > 64 * 1024) {
+      overflow = true;
+      req.destroy();
+    }
+  });
+  req.on('end', () => {
+    if (overflow) return;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(body);
+    } catch {
+      res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ ok: false, error: 'Body must be valid JSON' }));
+      return;
+    }
+    const check = parseWebhookTask(parsed);
+    if (!check.ok) {
+      res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ ok: false, error: check.message }));
+      return;
+    }
+    try {
+      const result = appendWebhookTask(readStorage(), check.input);
+      writeStorage(result.data);
+      res.writeHead(result.duplicate ? 200 : 201, {
+        'Content-Type': 'application/json; charset=utf-8',
+      });
+      res.end(JSON.stringify({ ok: true, id: result.id, duplicate: result.duplicate }));
+    } catch (err) {
+      res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({
+        ok: false,
+        error: err instanceof Error ? err.message : 'Write failed',
+      }));
+    }
+  });
+}
+
 export async function handleRequest(
   req: http.IncomingMessage,
   res: http.ServerResponse,
 ): Promise<void> {
-  const path = req.url?.split('?')[0] ?? '';
+  const url = req.url ?? '';
+  const path = url.split('?')[0];
 
   if (path === '/api/storage') {
     handleStorageRequest(req, res);
+    return;
+  }
+
+  if (path === '/api/webhook/task') {
+    if (req.method !== 'POST') {
+      res.writeHead(405, { 'Content-Type': 'text/plain; charset=utf-8', Allow: 'POST' });
+      res.end('Method Not Allowed');
+      return;
+    }
+    await handleWebhookTaskRequest(req, res, url);
     return;
   }
 
