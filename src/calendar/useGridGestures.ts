@@ -10,6 +10,8 @@ interface PendingGesture {
   day: Date;
   /** Touch and pen can swipe; a mouse drag would be a surprising navigation. */
   canSwipe: boolean;
+  /** Whether resolving this gesture as a tap is allowed (never on an event). */
+  canTap: boolean;
 }
 
 export interface GridGestureOptions {
@@ -51,20 +53,24 @@ export function useGridGestures({ onTap, onSwipe }: GridGestureOptions) {
   const startGesture = useCallback((day: Date, e: React.PointerEvent) => {
     // Only the primary button (or a touch/pen contact) starts a gesture.
     if (e.button !== 0) return;
-    // A gesture starting on an event block belongs to that block — dragging,
-    // resizing, or opening it — and must never become a new-event tap.
-    if ((e.target as Element | null)?.closest?.('.event-block')) return;
     // A second contact means a pinch/zoom, so abandon the pending gesture.
     if (pendingRef.current) {
       pendingRef.current = null;
       return;
     }
+    // A gesture that starts on an event block belongs to that block: a mouse
+    // press drags it and must not swipe; a touch may still resolve into a
+    // swipe (event drags on touch are dormant for ~600 ms and a flick
+    // releases them, so a quick horizontal flick never moves an event) —
+    // but it must never become a new-event tap.
+    const onEvent = !!(e.target as Element | null)?.closest?.('.event-block');
     pendingRef.current = {
       pointerId: e.pointerId,
       start: { x: e.clientX, y: e.clientY },
       startedAt: Date.now(),
       day,
       canSwipe: e.pointerType !== 'mouse',
+      canTap: e.pointerType === 'mouse' || !onEvent,
     };
   }, []);
 
@@ -78,7 +84,7 @@ export function useGridGestures({ onTap, onSwipe }: GridGestureOptions) {
       const duration = Date.now() - gesture.startedAt;
 
       if (isTap(gesture.start, end, duration)) {
-        tapRef.current(gesture.day, e.clientY);
+        if (gesture.canTap) tapRef.current(gesture.day, e.clientY);
         return;
       }
       const direction = swipeDirection(gesture.start, end);

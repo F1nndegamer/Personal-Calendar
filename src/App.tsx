@@ -391,7 +391,13 @@ export default function App() {
     setAnchor(view === 'week' ? startOfWeek(now) : startOfDay(now));
 
   /** Horizontal swipe on the grid navigates one day (day view) or one week. */
+  const swipeTimerRef = useRef<number | undefined>(undefined);
+  const [swipeDir, setSwipeDir] = useState<'swipe-next' | 'swipe-prev' | null>(null);
   const handleGridSwipe = (direction: -1 | 1) => {
+    // Brief slide-in animation so a swipe reads as navigation, not a scroll.
+    setSwipeDir(direction === 1 ? 'swipe-next' : 'swipe-prev');
+    window.clearTimeout(swipeTimerRef.current);
+    swipeTimerRef.current = window.setTimeout(() => setSwipeDir(null), 200);
     setAnchor((a) => {
       // On a phone a swipe means "next/previous day" in both views — the week
       // grid is a sideways scroller there, so a week-sized jump feels wrong.
@@ -646,7 +652,7 @@ export default function App() {
           />
         </div>
         <div
-          className={`calendar-pane view-${view}${isMobile && activePane !== 'calendar' ? ' pane-hidden' : ''}`}
+          className={`calendar-pane view-${view}${isMobile && activePane !== 'calendar' ? ' pane-hidden' : ''}${swipeDir ? ` ${swipeDir}` : ''}`}
         >
           <CalendarToolbar
             view={view}

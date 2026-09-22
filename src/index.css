@@ -466,6 +466,17 @@ button {
   touch-action: manipulation;
 }
 
+/*
+ * Horizontal pans over the day columns are handled by JS (useGridGestures →
+ * swipe navigation) — but only in day view, where the grid never scrolls
+ * sideways. Restricting touch-action to `pan-y` there stops the browser from
+ * claiming horizontal gestures (which fired `pointercancel` and made swipes
+ * dead). Vertical scrolling still happens natively.
+ */
+.calendar-pane.view-day .grid-days {
+  touch-action: pan-y;
+}
+
 .grid-day:last-child {
   border-right: none;
 }
@@ -1966,8 +1977,10 @@ input[type='time'] {
   }
 
   /* Single day fills the width. Week keeps the multi-column grid
-     (min-width 770px) but scrolls horizontally instead of squashing it. */
-  .app.mobile.view-day .grid-days .grid-day {
+     (min-width 770px) but scrolls horizontally instead of squashing it.
+     NOTE: `view-day`/`view-week` live on .calendar-pane, not on .app —
+     the selectors must go through that element to match at all. */
+  .app.mobile .calendar-pane.view-day .grid-days .grid-day {
     flex-basis: 100%;
     min-width: 100%;
   }
@@ -1975,23 +1988,23 @@ input[type='time'] {
   /* Week on a phone: readable columns instead of seven crushed ones.
      ~110px per day gives event titles room; scroll-snap makes swiping
      land on whole days (the day-step swipe navigation matches this). */
-  .app.mobile.view-week .grid-inner {
+  .app.mobile .calendar-pane.view-week .grid-inner {
     min-width: 770px;
   }
-  .app.mobile.view-week .grid-scroll {
+  .app.mobile .calendar-pane.view-week .grid-scroll {
     overflow-x: auto;
     /* Subtle visual cue that the week grid scrolls horizontally */
     scrollbar-width: thin;
     scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
     scroll-snap-type: x proximity;
   }
-  .app.mobile.view-week .grid-days .grid-day {
+  .app.mobile .calendar-pane.view-week .grid-days .grid-day {
     scroll-snap-align: start;
   }
-  .app.mobile.view-week .grid-scroll::-webkit-scrollbar {
+  .app.mobile .calendar-pane.view-week .grid-scroll::-webkit-scrollbar {
     height: 4px;
   }
-  .app.mobile.view-week .grid-scroll::-webkit-scrollbar-thumb {
+  .app.mobile .calendar-pane.view-week .grid-scroll::-webkit-scrollbar-thumb {
     background: rgba(255, 255, 255, 0.18);
     border-radius: 2px;
   }
