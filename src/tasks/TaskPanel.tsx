@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Check, Plus, Search, X } from 'lucide-react';
-import { formatDue, isOverdue, matchesQuery, sortTasks } from './lib';
+import { formatCountdown, formatDue, isOverdue, matchesQuery, sortTasks } from './lib';
 import type { Task } from './types';
 import { Pomodoro } from '../pomodoro/Pomodoro';
 
@@ -77,6 +77,11 @@ export function TaskPanel({ tasks, onToggle, onTaskClick, onNewTask, onTaskDragS
               </span>
             )}
             {task.estimatedMinutes && <span className="task-estimate">{task.estimatedMinutes}m</span>}
+            {!task.completed && task.dueDate && !overdueTask && (
+              <span className="task-countdown" title="Time until due">
+                {formatCountdown(task.dueDate)}
+              </span>
+            )}
             {task.subtasks.length > 0 && (
               <span className="task-subcount">{doneSubs}/{task.subtasks.length}</span>
             )}

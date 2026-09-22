@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatDue, isOverdue, matchesQuery, sortTasks } from '../lib';
+import { formatCountdown, formatDue, isOverdue, matchesQuery, sortTasks } from '../lib';
 import type { Task } from '../types';
 
 const task = (over: Partial<Task> & { id: string }): Task => ({
@@ -10,6 +10,33 @@ const task = (over: Partial<Task> & { id: string }): Task => ({
   subtasks: [],
   ...over,
 });
+
+describe('formatCountdown', () => {
+  const NOW = new Date('2026-09-22T12:00:00');
+
+  it('counts minutes under an hour', () => {
+    expect(formatCountdown('2026-09-22T12:45:00', NOW)).toBe('45m');
+  });
+
+  it('counts hours under a day', () => {
+    expect(formatCountdown('2026-09-23T09:30:00', NOW)).toBe('21h');
+  });
+
+  it('counts days within a week', () => {
+    expect(formatCountdown('2026-09-25T12:00:00', NOW)).toBe('3d');
+    expect(formatCountdown('2026-09-29T12:00:00', NOW)).toBe('7d');
+  });
+
+  it('returns null when already due (overdue badge handles that)', () => {
+    expect(formatCountdown('2026-09-22T11:59:00', NOW)).toBeNull();
+  });
+
+  it('returns null more than a week out and for invalid dates', () => {
+    expect(formatCountdown('2026-10-01T12:00:00', NOW)).toBeNull();
+    expect(formatCountdown('not-a-date', NOW)).toBeNull();
+  });
+});
+
 
 describe('sortTasks', () => {
   it('puts high priority before medium before low', () => {

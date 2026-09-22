@@ -46,6 +46,25 @@ export function formatDue(dateStr: string, now: Date = new Date()): string {
   return hasTime ? `${label} ${time}` : label;
 }
 
+/**
+ * Short countdown for imminent deadlines, e.g. "45m", "3h", "2d".
+ * Returns null when the task has no/past date or is more than a week out —
+ * beyond that a countdown is noise rather than a helpful nudge.
+ */
+export function formatCountdown(dateStr: string, now: Date = new Date()): string | null {
+  const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return null;
+  const ms = d.getTime() - now.getTime();
+  if (ms <= 0) return null; // overdue has its own badge
+  const minutes = Math.floor(ms / 60_000);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(ms / 86_400_000);
+  if (days <= 7) return `${days}d`;
+  return null;
+}
+
 /** Case-insensitive match on title, category, or description. */
 export function matchesQuery(task: Task, query: string): boolean {
   const q = query.trim().toLowerCase();
