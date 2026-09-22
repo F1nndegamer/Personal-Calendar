@@ -3,6 +3,7 @@ import { Check, Plus, Search, X } from 'lucide-react';
 import { formatCountdown, formatDue, isOverdue, matchesQuery, sortTasks } from './lib';
 import type { Task } from './types';
 import { Pomodoro } from '../pomodoro/Pomodoro';
+import { Scratchpad } from '../notes/Scratchpad';
 
 
 interface Props {
@@ -18,6 +19,7 @@ export function TaskPanel({ tasks, onToggle, onTaskClick, onNewTask, onTaskDragS
     const [showCompleted, setShowCompleted] = useState(false);
   const [query, setQuery] = useState('');
   const [showPomodoro, setShowPomodoro] = useState(false);
+  const [showScratchpad, setShowScratchpad] = useState(false);
 
   const { overdue, open, done } = useMemo(() => {
     const sorted = sortTasks(tasks);
@@ -173,6 +175,27 @@ export function TaskPanel({ tasks, onToggle, onTaskClick, onNewTask, onTaskDragS
             Hide Pomodoro timer
           </button>
           <Pomodoro />
+        </div>
+      )}
+      {!showScratchpad && (
+        <button
+          className="btn subtle pomodoro-toggle"
+          onClick={() => setShowScratchpad(true)}
+          aria-label="Show scratchpad"
+        >
+          Show scratchpad
+        </button>
+      )}
+      {showScratchpad && (
+        <div className="pomodoro-section">
+          <button
+            className="btn subtle pomodoro-toggle"
+            onClick={() => setShowScratchpad(false)}
+            aria-label="Hide scratchpad"
+          >
+            Hide scratchpad
+          </button>
+          <Scratchpad />
         </div>
       )}
       <div className="task-panel-footer">Drag a task onto the calendar to schedule it</div>

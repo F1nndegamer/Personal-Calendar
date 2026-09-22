@@ -1129,6 +1129,58 @@ input[type='time'] {
 .task-group-label.overdue,
 .task-count-overdue {
   color: var(--now);
+/* ---------- Scratchpad (quick notes) ---------- */
+
+.scratchpad {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+}
+
+.scratchpad-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.scratchpad-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  flex: 1;
+}
+
+.scratchpad-meta {
+  font-size: 11px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.scratchpad-clear {
+  padding: 2px 8px;
+  font-size: 11.5px;
+}
+
+.scratchpad-input {
+  width: 100%;
+  min-height: 120px;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 8px 10px;
+  outline: none;
+}
+
+.scratchpad-input:focus {
+  border-color: var(--accent);
+}
+
 }
 
 .task-card.overdue {
