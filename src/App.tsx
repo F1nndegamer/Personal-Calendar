@@ -3,6 +3,7 @@ import { addDays, addYears, startOfDay, startOfWeek } from './calendar/lib';
 import type { CalendarEvent, CalendarView } from './calendar/types';
 import { CalendarToolbar } from './calendar/CalendarToolbar';
 import { CalendarGrid } from './calendar/CalendarGrid';
+import { NextUp } from './calendar/NextUp';
 import { EventDialog } from './calendar/EventDialog';
 import type { Task } from './tasks/types';
 import { TaskPanel } from './tasks/TaskPanel';
@@ -767,6 +768,7 @@ export default function App() {
             onSettings={() => setSettingsOpen(true)}
             onReload={handleReloadFromServer}
           />
+          <NextUp events={events} now={now} />
           <CalendarGrid
             days={days}
             events={events}
