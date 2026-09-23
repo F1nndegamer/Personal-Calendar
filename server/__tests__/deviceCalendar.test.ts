@@ -40,10 +40,25 @@ function seedStorage(events: unknown[], tasks: unknown[]): void {
   vi.stubEnv('STORAGE_PATH', file);
 }
 
+// Fixture dates are relative to *today* (Amsterdam) so the 31-day feed range
+// — which starts at local midnight today — always includes e1/e2 and never
+// the long-past "old" event, regardless of when the suite runs.
+function amsterdamDayOffset(offsetDays: number): string {
+  const now = new Date();
+  const ymd = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Amsterdam',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now);
+  const [y, m, d] = ymd.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + offsetDays)).toISOString().slice(0, 10);
+}
+
 const EVENTS = [
-  { id: 'e1', title: 'Math', start: '2026-09-23T08:30:00+02:00', end: '2026-09-23T09:20:00+02:00', color: 'blue', category: 'School', source: 'external', externalId: 'magister:1' },
-  { id: 'e2', title: 'Holiday', start: '2026-09-24T00:00:00+02:00', end: '2026-09-25T00:00:00+02:00', color: 'green' },
-  { id: 'old', title: 'Old', start: '2026-01-05T10:00:00+01:00', end: '2026-01-05T11:00:00+01:00', color: 'blue' },
+  { id: 'e1', title: 'Math', start: `${amsterdamDayOffset(0)}T08:30:00+02:00`, end: `${amsterdamDayOffset(0)}T09:20:00+02:00`, color: 'blue', category: 'School', source: 'external', externalId: 'magister:1' },
+  { id: 'e2', title: 'Holiday', start: `${amsterdamDayOffset(1)}T00:00:00+02:00`, end: `${amsterdamDayOffset(2)}T00:00:00+02:00`, color: 'green' },
+  { id: 'old', title: 'Old', start: `${amsterdamDayOffset(-400)}T10:00:00+01:00`, end: `${amsterdamDayOffset(-400)}T11:00:00+01:00`, color: 'blue' },
 ];
 
 describe('GET /api/v1/calendar', () => {
