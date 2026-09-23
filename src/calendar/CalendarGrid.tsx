@@ -54,7 +54,13 @@ export function CalendarGrid({ days, events, now, onEventChange, onEventClick, o
     onTap: (day, clientY) => {
       onSlotClick(day, Math.min(minutesAt({ clientY }), 23 * 60 + 30));
     },
-    onSwipe,
+    // While an event is being dragged the gesture belongs to the drag: a
+    // horizontal move between day columns must not also navigate the calendar.
+    onSwipe: onSwipe
+      ? (direction) => {
+          if (!drag) onSwipe(direction);
+        }
+      : undefined,
   });
 
   // scroll to a sensible position on mount (around current time)

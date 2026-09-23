@@ -192,7 +192,11 @@ export function useEventDrag(options: {
   const beginDrag = useCallback(
     (event: CalendarEvent, mode: 'move' | 'resize', e: React.PointerEvent) => {
       e.preventDefault();
-      e.stopPropagation();
+      // A mouse press is claimed entirely by the block (drag). Touch and pen
+      // must keep bubbling to the grid: a quick flick on an event resolves as a
+      // swipe there (the dormant event-drag releases on movement), and it must
+      // never become a new-event tap either — the gesture rules handle that.
+      if (e.pointerType === 'mouse') e.stopPropagation();
       const origStartMin = minutesFromDayStart(new Date(event.start));
       const origEndMin = minutesFromDayStart(new Date(event.end));
       // where the pointer is (in grid minutes) so the block tracks the mouse

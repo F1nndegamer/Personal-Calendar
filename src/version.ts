@@ -14,7 +14,7 @@
  */
 
 /** The current published version (semver: MAJOR.MINOR.PATCH). */
-export const APP_VERSION = '0.16.0';
+export const APP_VERSION = '0.17.1';
 
 /** How large a change set was. Drives which semver field is incremented. */
 export type BumpLevel = 'major' | 'minor' | 'patch';
@@ -36,6 +36,18 @@ export interface VersionEntry {
  * `APP_VERSION` — `src/__tests__/version.test.ts` enforces this.
  */
 export const VERSION_HISTORY: readonly VersionEntry[] = [
+  {
+    version: '0.17.1',
+    date: '2026-09-23',
+    level: 'patch',
+    summary: 'Fix dead touch swipes: gesture now receives pointerdowns starting on event blocks',
+  },
+  {
+    version: '0.17.0',
+    date: '2026-09-22',
+    level: 'minor',
+    summary: 'GET /api/v1/calendar device feed for ESP32 wall calendar',
+  },
   {
     version: '0.16.0',
     date: '2026-09-22',

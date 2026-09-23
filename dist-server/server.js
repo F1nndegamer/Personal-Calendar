@@ -7,6 +7,8 @@
  *   PUT  /api/storage            → saves { events, tasks, feedUrl }
  *   POST /api/webhook/task       → appends a task (Bearer token; disabled
  *                                  unless WEBHOOK_TOKEN is set)
+ *   GET  /api/v1/calendar?days=N → read-only device feed for the ESP32 wall
+ *                                  calendar (Bearer DEVICE_TOKEN when set)
  *
  * STORAGE_PATH env var controls where data is saved.
  */
@@ -14,6 +16,7 @@ import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { validateProxyUrl } from './proxyCore.js';
 import { readStorage, writeStorage } from './storage.js';
+import { handleDeviceCalendarRequest, isDeviceCalendarPath } from './deviceCalendar.js';
 import { appendWebhookTask, parseWebhookTask, tokenMatches, } from './webhook.js';
 const HOST = process.env.HOST || '127.0.0.1';
 const PORT = Number(process.env.PORT) || 3000;
@@ -186,6 +189,10 @@ export async function handleRequest(req, res) {
             return;
         }
         await handleWebhookTaskRequest(req, res, url);
+        return;
+    }
+    if (path === '/api/v1/calendar' || isDeviceCalendarPath(url)) {
+        handleDeviceCalendarRequest(req, res, url);
         return;
     }
     if (path === '/ics' || path.startsWith('/ics?')) {
