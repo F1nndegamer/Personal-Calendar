@@ -2033,17 +2033,17 @@ input[type='time'] {
   }
 
   /* Week on a phone: readable columns instead of seven crushed ones.
-     ~110px per day gives event titles room; scroll-snap makes swiping
-     land on whole days (the day-step swipe navigation matches this). */
+     900px total − 46px time gutter = ~122px per day, enough for event
+     titles; mandatory scroll-snap makes swiping land on whole days. */
   .app.mobile .calendar-pane.view-week .grid-inner {
-    min-width: 770px;
+    min-width: 900px;
   }
   .app.mobile .calendar-pane.view-week .grid-scroll {
     overflow-x: auto;
     /* Subtle visual cue that the week grid scrolls horizontally */
     scrollbar-width: thin;
     scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
-    scroll-snap-type: x proximity;
+    scroll-snap-type: x mandatory;
     /* Snap targets start after the sticky times gutter, not under it. */
     scroll-padding-left: 46px;
   }
@@ -2095,6 +2095,7 @@ input[type='time'] {
   /* Events: readable on a phone, still touch-draggable via long-press */
   .app.mobile .event-block {
     touch-action: pan-y;
+    padding: 4px 7px 5px;
   }
   .app.mobile .event-block:hover {
     filter: none;
