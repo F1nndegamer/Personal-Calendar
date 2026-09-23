@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { addDays, addYears, startOfDay, startOfWeek } from './calendar/lib';
+import { addDays, addMonths, addYears, monthGrid, startOfDay, startOfMonth, startOfWeek } from './calendar/lib';
 import type { CalendarEvent, CalendarView } from './calendar/types';
 import { CalendarToolbar } from './calendar/CalendarToolbar';
 import { CalendarGrid } from './calendar/CalendarGrid';
+import { MonthView } from './calendar/MonthView';
 import { NextUp } from './calendar/NextUp';
 import { EventDialog } from './calendar/EventDialog';
 import type { Task } from './tasks/types';
@@ -54,6 +55,9 @@ function getInitialView(): CalendarView {
   try {
     const stored = localStorage.getItem('calendar-app/view');
     if (stored === 'day') return 'day';
+    // Month view is the one multi-day view that fits a phone, so it is kept on
+    // both layouts; only 'week' is desktop-only.
+    if (stored === 'month') return 'month';
     // A stored 'week' doesn't fit a phone screen, which has room for one day.
     if (stored === 'week' && !prefersPhoneLayout()) return 'week';
   } catch {/* ignore */}
@@ -441,8 +445,11 @@ export default function App() {
     // Use `anchor` (the stable navigation anchor) rather than `now` (which
     // is a new Date on every render). Basing the range on anchor means the
     // range only changes when the user navigates, not on every re-render.
+    // Month view also shows the days around the month (the grid starts on the
+    // Monday on/before the 1st), so its range starts at that Monday — the
+    // leading cells would otherwise stay empty.
     fetchRange: () => ({
-      from: startOfDay(anchor),
+      from: view === 'month' ? startOfWeek(startOfMonth(anchor)) : startOfDay(anchor),
       // 10 years of forward coverage ensures events far in the future
       // (e.g., recurring school schedules) are never missed.
       to: addYears(anchor, 10),
@@ -455,8 +462,10 @@ export default function App() {
   // of the new visible range and whatever is already covered.
   useEffect(() => {
     if (sync.configured) void sync.syncIfNeeded();
+    // `view` is a dependency too: switching into month view widens the visible
+    // range (back to the Monday before the 1st) without moving the anchor.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [anchor, sync.configured]);
+  }, [anchor, view, sync.configured]);
 
   // Toast after each successful sync, including what the feed itself covered.
   // Magister-style feeds only publish a rolling ~3-week window, so saying so
@@ -481,15 +490,26 @@ export default function App() {
 
   const days = useMemo(() => {
     if (view === 'day') return [startOfDay(anchor)];
+    if (view === 'month') return monthGrid(anchor);
     return Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(anchor), i));
   }, [view, anchor]);
 
-  const goPrev = () => setAnchor((a) => addDays(a, view === 'day' ? -1 : -7));
-  const goNext = () => setAnchor((a) => addDays(a, view === 'day' ? 1 : 7));
+  const goPrev = () =>
+    setAnchor((a) =>
+      view === 'month' ? addMonths(a, -1) : addDays(a, view === 'day' ? -1 : -7),
+    );
+  const goNext = () =>
+    setAnchor((a) => (view === 'month' ? addMonths(a, 1) : addDays(a, view === 'day' ? 1 : 7)));
   const goToday = () =>
-    setAnchor(view === 'week' ? startOfWeek(now) : startOfDay(now));
+    setAnchor(
+      view === 'week'
+        ? startOfWeek(now)
+        : view === 'month'
+          ? startOfMonth(now)
+          : startOfDay(now),
+    );
 
-  /** Horizontal swipe on the grid navigates one day (day view) or one week. */
+  /** Horizontal swipe on the grid pages a day, a week or a month. */
   const swipeTimerRef = useRef<number | undefined>(undefined);
   const [swipeDir, setSwipeDir] = useState<'swipe-next' | 'swipe-prev' | null>(null);
   const handleGridSwipe = (direction: -1 | 1) => {
@@ -498,6 +518,7 @@ export default function App() {
     window.clearTimeout(swipeTimerRef.current);
     swipeTimerRef.current = window.setTimeout(() => setSwipeDir(null), 200);
     setAnchor((a) => {
+      if (view === 'month') return addMonths(a, direction);
       // On a phone a swipe means "next/previous day" in both views — the week
       // grid is a sideways scroller there, so a week-sized jump feels wrong.
       const step = isMobile || view === 'day' ? 1 : 7;
@@ -541,6 +562,11 @@ export default function App() {
         case 'W':
           e.preventDefault();
           setView('week');
+          break;
+        case 'm':
+        case 'M':
+          e.preventDefault();
+          setView('month');
           break;
         default:
           break;
@@ -756,6 +782,7 @@ export default function App() {
           <CalendarToolbar
             view={view}
             days={days}
+            anchor={anchor}
             today={now}
             onViewChange={setView}
             onPrev={goPrev}
@@ -769,16 +796,32 @@ export default function App() {
             onReload={handleReloadFromServer}
           />
           <NextUp events={events} now={now} />
-          <CalendarGrid
-            days={days}
-            events={events}
-            now={now}
-            onEventChange={handleEventChange}
-            onEventClick={handleEventClick}
-            onSlotClick={handleSlotClick}
-            onTaskDrop={handleTaskDrop}
-            onSwipe={handleGridSwipe}
-          />
+          {view === 'month' ? (
+            <MonthView
+              days={days}
+              anchor={anchor}
+              events={events}
+              now={now}
+              onDayClick={(day) => {
+                // A day cell is a doorway into day view, not a new event.
+                setAnchor(startOfDay(day));
+                setView('day');
+              }}
+              onEventClick={handleEventClick}
+              onSwipe={handleGridSwipe}
+            />
+          ) : (
+            <CalendarGrid
+              days={days}
+              events={events}
+              now={now}
+              onEventChange={handleEventChange}
+              onEventClick={handleEventClick}
+              onSlotClick={handleSlotClick}
+              onTaskDrop={handleTaskDrop}
+              onSwipe={handleGridSwipe}
+            />
+          )}
         </div>
       </div>
       {isMobile && (

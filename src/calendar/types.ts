@@ -32,4 +32,5 @@ export interface CalendarEvent {
   recurrence?: string;
 }
 
-export type CalendarView = 'day' | 'week';
+/** Month view adds an overview grid: one cell per day, no time axis. */
+export type CalendarView = 'day' | 'week' | 'month';

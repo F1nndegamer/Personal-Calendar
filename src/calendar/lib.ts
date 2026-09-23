@@ -17,6 +17,16 @@ export function startOfWeek(d: Date): Date {
   return n;
 }
 
+export function startOfMonth(d: Date): Date {
+  const n = startOfDay(d);
+  n.setDate(1);
+  return n;
+}
+
+export function isSameMonth(a: Date, b: Date): boolean {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth();
+}
+
 export function addYears(d: Date, years: number): Date {
   const n = new Date(d);
   n.setFullYear(n.getFullYear() + years);
@@ -27,6 +37,36 @@ export function addDays(d: Date, days: number): Date {
   const n = new Date(d);
   n.setDate(n.getDate() + days);
   return n;
+}
+
+/**
+ * Move `months` months, clamping the day-of-month to the target month's length
+ * (31 Jan + 1 → 28/29 Feb). Without the clamp, `setMonth` would overflow into
+ * the month after next and paging would silently skip a month.
+ */
+export function addMonths(d: Date, months: number): Date {
+  const n = startOfDay(d);
+  const dayOfMonth = n.getDate();
+  n.setDate(1);
+  n.setMonth(n.getMonth() + months);
+  const daysInMonth = new Date(n.getFullYear(), n.getMonth() + 1, 0).getDate();
+  n.setDate(Math.min(dayOfMonth, daysInMonth));
+  return n;
+}
+
+/** Week rows the month grid always renders — a frame that never re-sizes. */
+export const MONTH_GRID_WEEKS = 6;
+export const MONTH_GRID_DAYS = MONTH_GRID_WEEKS * 7;
+
+/**
+ * The whole-week cells covering `anchor`'s month, Monday first.
+ *
+ * Always 42 cells: some months only need five rows, but keeping the frame
+ * fixed means the grid never changes height while paging through months.
+ */
+export function monthGrid(anchor: Date): Date[] {
+  const first = startOfWeek(startOfMonth(anchor));
+  return Array.from({ length: MONTH_GRID_DAYS }, (_, i) => addDays(first, i));
 }
 
 export function addMinutes(d: Date, minutes: number): Date {
@@ -69,6 +109,11 @@ export function formatDayLabel(d: Date): string {
 
 export function formatDayNumber(d: Date): string {
   return String(d.getDate());
+}
+
+/** e.g. "September 2026" — the month-view toolbar label. */
+export function formatMonthLabel(d: Date): string {
+  return d.toLocaleDateString([], { month: 'long', year: 'numeric' });
 }
 
 export function formatWeekRange(weekStart: Date): string {

@@ -854,6 +854,129 @@ input[type='time'] {
   min-height: 0;
 }
 
+/* ---------- Month view ---------- */
+
+.month-view {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.month-weekdays {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  background: rgba(0, 0, 0, 0.92);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border);
+}
+
+.month-weekday {
+  padding: 7px 0 6px;
+  text-align: center;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+}
+
+.month-grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  /* Six rows share whatever height is left; minmax keeps them tappable in a
+     short window instead of collapsing to nothing. */
+  grid-auto-rows: minmax(76px, 1fr);
+  min-height: 0;
+}
+
+.month-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+  min-width: 0;
+  overflow: hidden;
+  border-right: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+  cursor: pointer;
+  /*
+   * Vertical panning stays native (the pane scrolls); horizontal gestures go to
+   * JS so a swipe pages a month instead of being swallowed by the browser.
+   */
+  touch-action: pan-y;
+}
+
+.month-cell:nth-child(7n) {
+  border-right: none;
+}
+
+.month-cell.other-month {
+  background: rgba(255, 255, 255, 0.012);
+}
+
+/* Days outside the visible month recede — present, but never competing. */
+.month-cell.other-month .month-day-number,
+.month-cell.other-month .month-chip,
+.month-cell.other-month .month-more {
+  opacity: 0.45;
+}
+
+.month-cell.today {
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+
+.month-day-number {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.month-cell.today .month-day-number {
+  background: var(--accent);
+  color: #08080a;
+  border-radius: 10px;
+}
+
+.month-chip {
+  display: block;
+  width: 100%;
+  padding: 1px 5px;
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.4;
+  text-align: left;
+  /* Longhand borders only: the color-* palette classes set border-color. */
+  border-width: 1px;
+  border-style: solid;
+  border-radius: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.month-chip:hover {
+  filter: brightness(1.25);
+}
+
+.month-more {
+  padding-left: 5px;
+  font-size: 10px;
+  color: var(--text-faint);
+}
+
 .task-panel-header {
   display: flex;
   align-items: center;
@@ -1753,6 +1876,14 @@ input[type='time'] {
 .app.oled-mode .event-block.color-purple { background: rgba(169, 124, 245, 0.07); border-color: rgba(169, 124, 245, 0.30); color: #b398e8; }
 .app.oled-mode .event-block.color-cyan   { background: rgba(69, 196, 216, 0.06);  border-color: rgba(69, 196, 216, 0.28);  color: #74c9d6; }
 
+/* Month chips are small, but they should still match the OLED-safe palette. */
+.app.oled-mode .month-chip.color-blue   { background: rgba(91, 124, 250, 0.08);  border-color: rgba(91, 124, 250, 0.30);  color: #9aabf5; }
+.app.oled-mode .month-chip.color-green  { background: rgba(62, 207, 142, 0.06);  border-color: rgba(62, 207, 142, 0.28);  color: #6fdcae; }
+.app.oled-mode .month-chip.color-amber  { background: rgba(232, 176, 75, 0.06);  border-color: rgba(232, 176, 75, 0.28);  color: #dba86a; }
+.app.oled-mode .month-chip.color-red    { background: rgba(240, 99, 111, 0.06);  border-color: rgba(240, 99, 111, 0.28);  color: #e8939b; }
+.app.oled-mode .month-chip.color-purple { background: rgba(169, 124, 245, 0.07); border-color: rgba(169, 124, 245, 0.30); color: #b398e8; }
+.app.oled-mode .month-chip.color-cyan   { background: rgba(69, 196, 216, 0.06);  border-color: rgba(69, 196, 216, 0.28);  color: #74c9d6; }
+
 /*
  * Toasts: slightly less prominent in OLED mode (they're transient anyway).
  */
@@ -1995,8 +2126,10 @@ input[type='time'] {
   }
 
   .app.mobile .view-toggle .view-btn {
-    padding: 8px 12px;
-    font-size: 13px;
+    /* Three views now share this row, so the tabs are tighter than on desktop
+       — and the toggle wraps as one unit if the row still runs out of space. */
+    padding: 8px 10px;
+    font-size: 12px;
   }
 }
 
@@ -2065,6 +2198,37 @@ input[type='time'] {
   .app.mobile .calendar-pane.view-week .grid-scroll::-webkit-scrollbar-thumb {
     background: rgba(255, 255, 255, 0.18);
     border-radius: 2px;
+  }
+
+  /*
+   * Month on a phone: same grid, tighter cells. Chips shrink rather than
+   * disappear — seeing *that* something is on a day is the whole point of the
+   * view, and tapping the cell still opens the full day.
+   */
+  .app.mobile .month-grid {
+    grid-auto-rows: minmax(62px, 1fr);
+  }
+  .app.mobile .month-cell {
+    gap: 1px;
+    padding: 2px;
+  }
+  .app.mobile .month-weekday {
+    padding: 5px 0 4px;
+    font-size: 10px;
+  }
+  .app.mobile .month-day-number {
+    min-width: 18px;
+    height: 18px;
+    font-size: 11px;
+  }
+  .app.mobile .month-chip {
+    padding: 0 3px;
+    font-size: 10px;
+    border-radius: 3px;
+  }
+  .app.mobile .month-more {
+    padding-left: 3px;
+    font-size: 9px;
   }
 
 

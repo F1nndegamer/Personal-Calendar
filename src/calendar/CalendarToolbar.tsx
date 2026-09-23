@@ -1,11 +1,13 @@
 import { ChevronLeft, ChevronRight, RefreshCw, Settings as SettingsIcon } from 'lucide-react';
-import { formatDayLabel, formatDayNumber, formatWeekRange, isSameDay } from './lib';
+import { formatDayLabel, formatDayNumber, formatMonthLabel, formatWeekRange, isSameDay, isSameMonth } from './lib';
 import type { CalendarView } from './types';
 import type { SyncState } from '../integrations/useScheduleSync';
 
 interface Props {
   view: CalendarView;
   days: Date[];
+  /** Any day inside the visible period — the month-view label is built from it. */
+  anchor: Date;
   today: Date;
   onViewChange: (v: CalendarView) => void;
   onPrev: () => void;
@@ -49,6 +51,7 @@ function syncTitle(state: SyncState | undefined, lastSyncAt: string | undefined)
 export function CalendarToolbar({
   view,
   days,
+  anchor,
   today,
   onViewChange,
   onPrev,
@@ -61,14 +64,21 @@ export function CalendarToolbar({
   onSettings,
   onReload,
 }: Props) {
-  const inRange = days.some((d) => isSameDay(d, today));
+  // The month grid always spills into the neighbouring months, so "am I on the
+  // current period?" has to be a month comparison rather than a day lookup —
+  // otherwise Today would be disabled while an out-of-month cell (i.e. today)
+  // is on screen.
+  const inRange =
+    view === 'month' ? isSameMonth(anchor, today) : days.some((d) => isSameDay(d, today));
   const label =
     view === 'week'
       ? formatWeekRange(days[0])
-      : `${formatDayLabel(days[0])} ${formatDayNumber(days[0])} ${days[0].toLocaleDateString([], {
-          month: 'long',
-          year: 'numeric',
-        })}`;
+      : view === 'month'
+        ? formatMonthLabel(anchor)
+        : `${formatDayLabel(days[0])} ${formatDayNumber(days[0])} ${days[0].toLocaleDateString([], {
+            month: 'long',
+            year: 'numeric',
+          })}`;
 
   const syncing = syncState?.status === 'syncing';
   const showSync = !!onSync && syncConfigured !== false;
@@ -96,7 +106,7 @@ export function CalendarToolbar({
         {!isMobile && <span className="range-label">{label}</span>}
         <span className="toolbar-spacer" />
         <div className="view-toggle" role="tablist" aria-label="Calendar view">
-          {(['day', 'week'] as const).map((v) => (
+          {(['day', 'week', 'month'] as const).map((v) => (
             <button
               key={v}
               role="tab"
@@ -104,7 +114,7 @@ export function CalendarToolbar({
               className={`view-btn${view === v ? ' active' : ''}`}
               onClick={() => onViewChange(v)}
             >
-              {v === 'day' ? 'Day' : 'Week'}
+              {v === 'day' ? 'Day' : v === 'week' ? 'Week' : 'Month'}
             </button>
           ))}
         </div>

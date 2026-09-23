@@ -25,7 +25,7 @@ export interface GridGestureOptions {
 }
 
 /**
- * Pointer gestures for the time grid.
+ * Pointer gestures for a calendar grid (time grid or month grid).
  *
  * The grid must never create an event from the *start* of a touch: on a phone
  * every scroll attempt would spawn a blank event dialog. Instead the gesture is
@@ -58,12 +58,12 @@ export function useGridGestures({ onTap, onSwipe }: GridGestureOptions) {
       pendingRef.current = null;
       return;
     }
-    // A gesture that starts on an event block belongs to that block: a mouse
-    // press drags it and must not swipe; a touch may still resolve into a
-    // swipe (event drags on touch are dormant for ~600 ms and a flick
-    // releases them, so a quick horizontal flick never moves an event) —
-    // but it must never become a new-event tap.
-    const onEvent = !!(e.target as Element | null)?.closest?.('.event-block');
+    // A gesture that starts on an event block (or a month-view chip) belongs
+    // to that item: a mouse press drags it and must not swipe; a touch may
+    // still resolve into a swipe (event drags on touch are dormant for
+    // ~600 ms and a flick releases them, so a quick horizontal flick never
+    // moves an event) — but it must never become a new-event tap.
+    const onEvent = !!(e.target as Element | null)?.closest?.('.event-block, .month-chip');
     pendingRef.current = {
       pointerId: e.pointerId,
       start: { x: e.clientX, y: e.clientY },
