@@ -259,6 +259,16 @@ recurrence editor (`CalendarEvent.recurrence` is reserved but unused) — see §
 - **Saved filters** — ⬜ "only School", "hide finished subjects", colour-based
   filters applied to both the grid and the task list, persisted per device.
 
+## 2.3 Polishing & UX
+
+- **Focus outlines and keyboard navigation** — ⬜ visible focus rings for grid navigation, task panel, and dialogs; roving tabindex over event blocks and slots (later: full keyboard navigation between views).
+- **Toast duration configurability** — ⬜ currently fixed 2.4 s; later: per-user adjustable timeout or manual dismiss.
+- **Custom colour picker** — ⬜ replace the hard‑coded 6‑colour swatch with a full colour wheel or recent‑colours palette, allowing any HEX input.
+- **Mobile swipe feedback** — ⬜ add subtle visual cue (e.g., background shift) when a horizontal swipe initiates navigation, so the user knows the gesture is recognized.
+- **Error handling for malformed ICS feeds** — ⬜ graceful degradation and user‑visible notice when the Magister feed contains unexpected formatting.
+- **Undo/Redo for deletions** — ⬜ toast "1 event deleted" with a brief undo action.
+- **Keyboard shortcuts help overlay** — ⬜ a temporary modal (Esc to close) listing all shortcuts, discoverable from the Settings page.
+
 ---
 
 *Statuses here are checked against the code at each release; the version that
