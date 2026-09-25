@@ -9,6 +9,13 @@
  *                                  unless WEBHOOK_TOKEN is set)
  *   GET  /api/v1/calendar?days=N → read-only device feed for the ESP32 wall
  *                                  calendar (Bearer DEVICE_TOKEN when set)
+ *   GET  /api/google/status      → Google connection + calendars + selection
+ *   GET  /api/google/login       → 302 redirect to Google OAuth consent
+ *   GET  /api/google/callback    → token exchange, redirect back to "/"
+ *   POST /api/google/logout      → revoke + clear tokens
+ *   POST /api/google/selection   → saves { calendarIds }
+ *   GET  /api/google/events      → events for the selected calendars
+ *   POST /api/google/events      → create an event on Google Calendar
  *
  * STORAGE_PATH env var controls where data is saved.
  */
@@ -17,6 +24,7 @@ import { fileURLToPath } from 'node:url';
 import { validateProxyUrl } from './proxyCore.js';
 import { readStorage, writeStorage } from './storage.js';
 import { handleDeviceCalendarRequest, isDeviceCalendarPath } from './deviceCalendar.js';
+import { handleGoogleRequest, isGooglePath } from './googleRoutes.js';
 import { appendWebhookTask, parseWebhookTask, tokenMatches, } from './webhook.js';
 const HOST = process.env.HOST || '127.0.0.1';
 const PORT = Number(process.env.PORT) || 3000;
@@ -193,6 +201,10 @@ export async function handleRequest(req, res) {
     }
     if (path === '/api/v1/calendar' || isDeviceCalendarPath(url)) {
         handleDeviceCalendarRequest(req, res, url);
+        return;
+    }
+    if (isGooglePath(url)) {
+        await handleGoogleRequest(req, res, url);
         return;
     }
     if (path === '/ics' || path.startsWith('/ics?')) {

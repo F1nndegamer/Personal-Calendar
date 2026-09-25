@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CalendarEvent } from '../calendar/types';
 import { syncExternalEvents } from './sync';
-import { getScheduleProviderInfo } from './index';
+import {
+  getScheduleProvidersInfo,
+  refreshGoogleAvailability,
+} from './index';
+import type { ExternalFetchResult } from './types';
 
 /**
  * Schedule-sync orchestration, kept out of the UI layer.
@@ -64,9 +68,11 @@ export interface ScheduleSync {
 }
 
 export function useScheduleSync(options: UseScheduleSyncOptions): ScheduleSync {
-  const providerInfo = useRef(getScheduleProviderInfo());
-  const runningRef = useRef(false);
   const startedRef = useRef(false);
+  const runningRef = useRef(false);
+  // Tracks which provider ids have ever contributed, so syncExternalEvents()
+  // can prune per provider without one provider wiping another's events.
+  const syncedRef = useRef<Set<string>>(new Set());
   const syncedRangeRef = useRef<{ from: number; to: number } | null>(null);
 
   // keep latest callbacks without re-triggering the startup effect
@@ -86,44 +92,59 @@ export function useScheduleSync(options: UseScheduleSyncOptions): ScheduleSync {
 
   const syncNow = useCallback(async (rangeOverride?: { from: Date; to: Date }) => {
     if (runningRef.current) return; // one sync at a time
-    const provider = providerInfo.current.provider;
-    if (!provider) {
-      setState((prev) => ({
-        ...prev,
-        status: 'error',
-        errorMessage: 'No schedule provider configured',
-      }));
-      return;
-    }
     runningRef.current = true;
     setState((s) => ({ ...s, status: 'syncing', errorMessage: undefined }));
     const opts = callbacksRef.current;
     const range = rangeOverride ?? opts.fetchRange();
     try {
-      const result = await provider.fetchSchedule(range);
-      if (result.error) {
+      // Settle the Google availability probe first so a connected account
+      // takes part in this very sync (a no-op once the cache is filled).
+      await refreshGoogleAvailability();
+      const providers = getScheduleProvidersInfo().providers;
+      if (providers.length === 0) {
         setState((prev) => ({
           ...prev,
           status: 'error',
-          errorMessage: result.error!.message,
+          errorMessage: 'No schedule provider configured',
         }));
         return;
       }
-      const merged = syncExternalEvents(
-        opts.getEvents(),
-        result.events,
-        result.providerId,
-        result.fetchedAt,
-      ).events;
+      const results: ExternalFetchResult[] = [];
+      for (const provider of providers) {
+        results.push(await provider.fetchSchedule(range));
+      }
+      const succeeded = results.filter((r) => !r.error);
+      const failed = results.filter((r) => r.error);
+      if (succeeded.length === 0) {
+        setState((prev) => ({
+          ...prev,
+          status: 'error',
+          errorMessage: failed[0]?.error?.message ?? 'Synchronization failed',
+        }));
+        return;
+      }
+      // Merge each provider separately: syncExternalEvents() only prunes
+      // events carrying its own `<providerId>:` prefix, so a provider that
+      // failed this round keeps everything it synced before.
+      let merged = opts.getEvents();
+      let fetchedAt = succeeded[0].fetchedAt;
+      for (const r of succeeded) {
+        if (new Date(r.fetchedAt).getTime() > new Date(fetchedAt).getTime()) {
+          fetchedAt = r.fetchedAt;
+        }
+        syncedRef.current.add(r.providerId);
+        merged = syncExternalEvents(merged, r.events, r.providerId, r.fetchedAt).events;
+      }
       opts.commitEvents(merged);
       opts.persist(merged);
+      const allExternal = succeeded.flatMap((r) => r.events);
       // Report what the *feed itself* contained (not the requested range).
       // Sources like Magister only publish a rolling few-week window, so the
       // feed's coverage can be far narrower than what was asked for — the UI
       // surfaces this so a "missing" far-future event is never mysterious.
       let coverageFrom: number | null = null;
       let coverageTo: number | null = null;
-      for (const ext of result.events) {
+      for (const ext of allExternal) {
         const s = new Date(ext.start).getTime();
         const e = new Date(ext.end).getTime();
         if (coverageFrom === null || s < coverageFrom) coverageFrom = s;
@@ -142,10 +163,16 @@ export function useScheduleSync(options: UseScheduleSyncOptions): ScheduleSync {
         from: prev ? Math.min(prev.from, from) : from,
         to: prev ? Math.max(prev.to, to) : to,
       };
+      const failedNames = failed
+        .map((r) => providers.find((p) => p.id === r.providerId)?.displayName ?? r.providerId)
+        .join(', ');
       setState({
-        status: 'success',
-        lastSyncAt: result.fetchedAt,
-        errorMessage: undefined,
+        status: failed.length > 0 ? 'error' : 'success',
+        lastSyncAt: fetchedAt,
+        errorMessage:
+          failed.length > 0
+            ? `${failedNames} sync failed: ${failed[0].error?.message ?? 'unknown error'}`
+            : undefined,
         // Report the cumulative union range so the useEffect in App can
         // correctly detect when the visible range has grown beyond what
         // was previously reported — and trigger a fresh syncIfNeeded.
@@ -153,7 +180,7 @@ export function useScheduleSync(options: UseScheduleSyncOptions): ScheduleSync {
         syncedTo: prev ? Math.max(prev.to, to) : to,
         coverageFrom,
         coverageTo,
-        coverageCount: result.events.length,
+        coverageCount: allExternal.length,
       });
     } catch (err) {
       setState((prev) => ({
@@ -173,7 +200,7 @@ export function useScheduleSync(options: UseScheduleSyncOptions): ScheduleSync {
    */
   const syncIfNeeded = useCallback(async () => {
     if (runningRef.current) return;
-    if (!providerInfo.current.configured) return;
+    if (!getScheduleProvidersInfo().configured) return;
     const range = callbacksRef.current.fetchRange();
     const rangeFrom = range.from.getTime();
     const rangeTo = range.to.getTime();
@@ -194,11 +221,16 @@ export function useScheduleSync(options: UseScheduleSyncOptions): ScheduleSync {
   useEffect(() => {
     if (startedRef.current) return; // StrictMode-safe
     startedRef.current = true;
-    if (options.autoSyncOnStart !== false && providerInfo.current.configured) {
-      void syncNow();
+    if (options.autoSyncOnStart !== false) {
+      void (async () => {
+        // Probe Google first: without it a Google-only setup reports
+        // `configured === false` and would never auto-sync.
+        await refreshGoogleAvailability();
+        if (getScheduleProvidersInfo().configured) void syncNow();
+      })();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  return { state, syncNow, syncIfNeeded, configured: providerInfo.current.configured };
+  return { state, syncNow, syncIfNeeded, configured: getScheduleProvidersInfo().configured };
 }

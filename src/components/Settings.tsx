@@ -1,7 +1,9 @@
-import { useEffect, useId, useState } from 'react';
+import { useCallback, useEffect, useId, useState } from 'react';
 import { X } from 'lucide-react';
 import { APP_VERSION } from '../version';
 import { useDialogA11y } from '../hooks/useDialogA11y';
+import { refreshGoogleAvailability, resetGoogleAvailabilityCache } from '../integrations';
+import type { GoogleStatusResponse } from '../../server/googleTypes';
 
 interface Props {
   feedUrl: string;
@@ -55,6 +57,77 @@ export function Settings({
     input?.select();
   }, [panelRef]);
 
+  // ---------- Google Calendar connection ----------
+  const [google, setGoogle] = useState<GoogleStatusResponse | null>(null);
+  const [googleLoading, setGoogleLoading] = useState(true);
+  const [googleBusy, setGoogleBusy] = useState(false);
+  const [googleError, setGoogleError] = useState<string | null>(null);
+
+  const loadGoogleStatus = useCallback(async () => {
+    try {
+      const res = await fetch('/api/google/status', { headers: { Accept: 'application/json' } });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = (await res.json()) as GoogleStatusResponse;
+      setGoogle(data);
+      setGoogleError(data.connected ? null : (data.error ?? null));
+    } catch (err) {
+      setGoogle(null);
+      setGoogleError(err instanceof Error ? err.message : 'Could not reach the server');
+    } finally {
+      setGoogleLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    // Defer to a task callback: state updates must not run synchronously in
+    // the effect body (react-hooks/set-state-in-effect). Cleared on unmount.
+    const timer = setTimeout(() => void loadGoogleStatus(), 0);
+    return () => clearTimeout(timer);
+  }, [loadGoogleStatus]);
+
+  const connectGoogle = () => {
+    // Full-page navigation: the server 302s to Google's consent screen and
+    // the OAuth callback redirects back to "/" with a fresh page load.
+    window.location.href = '/api/google/login';
+  };
+
+  const disconnectGoogle = async () => {
+    setGoogleBusy(true);
+    try {
+      const res = await fetch('/api/google/logout', { method: 'POST' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      // Availability changed — drop the cached probe and re-run it so the
+      // next sync stops including Google.
+      resetGoogleAvailabilityCache();
+      void refreshGoogleAvailability();
+      await loadGoogleStatus();
+    } catch (err) {
+      setGoogleError(err instanceof Error ? err.message : 'Disconnect failed');
+    } finally {
+      setGoogleBusy(false);
+    }
+  };
+
+  const toggleGoogleCalendar = async (id: string, on: boolean) => {
+    const current = google?.selectedCalendarIds ?? [];
+    const next = on ? [...current, id] : current.filter((x) => x !== id);
+    setGoogleBusy(true);
+    try {
+      const res = await fetch('/api/google/selection', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ calendarIds: next }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setGoogle((s) => (s ? { ...s, selectedCalendarIds: next } : s));
+      setGoogleError(null);
+    } catch (err) {
+      setGoogleError(err instanceof Error ? err.message : 'Could not save the calendar selection');
+    } finally {
+      setGoogleBusy(false);
+    }
+  };
+
   const handleSave = () => {
     setSaving(true);
     onSave(value.trim());
@@ -100,6 +173,60 @@ export function Settings({
           The URL is stored locally in your browser and on the server
           (for cross-device sync).
         </p>
+
+        {/* ---------- Google Calendar ---------- */}
+        <div className="settings-section">
+          <div className="settings-section-title">Google Calendar</div>
+          <p className="settings-section-desc">
+            Connect a Google account to import events from the calendars you
+            pick, alongside your Magister feed. Authorization runs on the
+            server — your tokens never reach the browser.
+          </p>
+          {googleLoading ? (
+            <span className="settings-hint">Checking connection…</span>
+          ) : google?.connected ? (
+            <>
+              <div className="settings-row">
+                <span className="settings-row-label">
+                  {google.email ?? 'Google account connected'}
+                </span>
+                <button
+                  className="btn"
+                  disabled={googleBusy}
+                  onClick={() => void disconnectGoogle()}
+                >
+                  {googleBusy ? 'Working…' : 'Disconnect'}
+                </button>
+              </div>
+              {google.calendars.length === 0 ? (
+                <span className="settings-hint">No calendars found for this account.</span>
+              ) : (
+                google.calendars.map((cal) => (
+                  <label className="settings-row" key={cal.id}>
+                    <span className="settings-row-label">{cal.summary}</span>
+                    <input
+                      type="checkbox"
+                      checked={google.selectedCalendarIds.includes(cal.id)}
+                      disabled={googleBusy}
+                      onChange={(e) => void toggleGoogleCalendar(cal.id, e.target.checked)}
+                    />
+                  </label>
+                ))
+              )}
+              <span className="settings-hint">
+                Only the checked calendars are imported.
+              </span>
+              {googleError && <span className="settings-hint">{googleError}</span>}
+            </>
+          ) : (
+            <>
+              <button className="btn" disabled={googleBusy} onClick={connectGoogle}>
+                Connect Google Calendar
+              </button>
+              {googleError && <span className="settings-hint">{googleError}</span>}
+            </>
+          )}
+        </div>
 
         {/* ---------- Smart buffers ---------- */}
         <div className="settings-section">

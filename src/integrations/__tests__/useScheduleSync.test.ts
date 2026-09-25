@@ -15,10 +15,14 @@ import type { CalendarEvent } from '../../calendar/types';
  */
 const infoMock = vi.hoisted(() => ({
   getScheduleProviderInfo: vi.fn(),
+  getScheduleProvidersInfo: vi.fn(),
+  refreshGoogleAvailability: vi.fn(),
 }));
 
 vi.mock('../index', () => ({
   getScheduleProviderInfo: infoMock.getScheduleProviderInfo,
+  getScheduleProvidersInfo: infoMock.getScheduleProvidersInfo,
+  refreshGoogleAvailability: infoMock.refreshGoogleAvailability,
 }));
 
 const ext = (id: string): ExternalScheduleEvent => ({
@@ -59,9 +63,10 @@ function setup(opts: {
   const provider =
     opts.provider ??
     makeProvider({ events: [ext('les-1'), ext('les-2')] });
-  infoMock.getScheduleProviderInfo.mockReturnValue({
-    provider,
-    configured: opts.configured ?? true,
+  const configured = opts.configured ?? true;
+  infoMock.getScheduleProvidersInfo.mockReturnValue({
+    providers: configured ? [provider] : [],
+    configured,
   });
 
   let current = opts.initialEvents ?? [manual];
@@ -94,6 +99,9 @@ function setup(opts: {
 describe('useScheduleSync', () => {
   beforeEach(() => {
     infoMock.getScheduleProviderInfo.mockReset();
+    infoMock.getScheduleProvidersInfo.mockReset();
+    infoMock.refreshGoogleAvailability.mockReset();
+    infoMock.refreshGoogleAvailability.mockResolvedValue(false);
   });
 
   it('performs a successful sync: merges, commits, persists, marks success', async () => {
@@ -192,7 +200,7 @@ describe('useScheduleSync', () => {
         });
       }),
     };
-    infoMock.getScheduleProviderInfo.mockReturnValue({ provider, configured: true });
+    infoMock.getScheduleProvidersInfo.mockReturnValue({ providers: [provider], configured: true });
 
     let current: CalendarEvent[] = [];
     const { result, unmount } = renderHook(() =>
@@ -258,5 +266,47 @@ describe('useScheduleSync', () => {
     expect(helper.readState().lastSyncAt).toBe('2026-08-30T01:00:00Z');
     expect(helper.getCurrent().some((e) => e.source === 'external')).toBe(true);
     helper.unmount();
+  });
+
+  it('keeps committed events when one of several providers fails', async () => {
+    const magister = makeProvider({ events: [ext('les-1')] });
+    const google: ScheduleProvider = {
+      id: 'google',
+      displayName: 'Google Calendar',
+      fetchSchedule: vi.fn().mockResolvedValue({
+        providerId: 'google',
+        fetchedAt: '2026-08-30T00:00:00Z',
+        events: [],
+        error: { code: 'auth', message: 'token expired' },
+      }),
+    };
+    infoMock.getScheduleProvidersInfo.mockReturnValue({
+      providers: [magister, google],
+      configured: true,
+    });
+
+    let current: CalendarEvent[] = [manual];
+    const { result, unmount } = renderHook(() =>
+      useScheduleSync({
+        getEvents: () => current,
+        commitEvents: (next) => {
+          current = next;
+        },
+        persist: () => {
+          // noop
+        },
+        fetchRange: () => ({ from: new Date('2026-09-07'), to: new Date('2026-09-14') }),
+        autoSyncOnStart: true,
+      }),
+    );
+
+    await waitFor(() => expect(result.current.state.status).toBe('error'));
+    // Magister succeeded, so its events are committed even though Google failed…
+    expect(current.some((e) => e.source === 'external')).toBe(true);
+    expect(current.some((e) => e.id === 'manual-1')).toBe(true);
+    // …and the failure is surfaced with the failing provider named.
+    expect(result.current.state.errorMessage).toContain('Google Calendar');
+    expect(result.current.state.errorMessage).toContain('token expired');
+    unmount();
   });
 });
