@@ -404,6 +404,31 @@ export default function App() {
 
   const dismissToast = (id: number) => setToasts((t) => t.filter((x) => x.id !== id));
 
+  // OAuth return: after the Google consent dance the server bounces the
+  // browser back as `/?google=connected` or `/?google=error`. Acknowledge it
+  // once (toast + open Settings on success) and strip the parameter so a
+  // refresh or shared link doesn't re-trigger it.
+  useEffect(() => {
+    const qs = new URLSearchParams(window.location.search);
+    const result = qs.get('google');
+    if (result !== 'connected' && result !== 'error') return;
+    qs.delete('google');
+    const query = qs.toString();
+    window.history.replaceState(
+      null,
+      '',
+      `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`,
+    );
+    if (result === 'connected') {
+      showToast('Google Calendar connected');
+      // Deferred one tick like the Settings status load: setState may not
+      // run synchronously in an effect body (react-hooks/set-state-in-effect).
+      const timer = window.setTimeout(() => setSettingsOpen(true), 0);
+      return () => window.clearTimeout(timer);
+    }
+    showToast('Google Calendar connection failed — retry from Settings');
+  }, []);
+
   // Global desktop shortcut: "N" opens the quick-add dialog.
   // Ignored when the user is typing inside an input/textarea/select/dialog/contenteditable.
   useEffect(() => {

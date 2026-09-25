@@ -56,6 +56,11 @@ production `.env` lives at `/opt/personal-calendar-proxy/.env`
 MAGISTER_FEED_URL=webcal://calendar.magister.net/api/icalendar/feeds/YOUR-FEED-ID
 HOST=127.0.0.1
 PORT=3000
+
+# Google Calendar OAuth (see §9) — never commit real values.
+GOOGLE_CLIENT_ID=YOUR-CLIENT-ID.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=YOUR-CLIENT-SECRET
+GOOGLE_REDIRECT_URI=https://calendar.f1nn.me/api/google/callback
 ```
 
 > **Never commit `MAGISTER_FEED_URL`** — it contains a private feed
@@ -127,6 +132,14 @@ server {
 
     location / {
         try_files $uri $uri/ /index.html;
+    }
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
     }
 
     location /ics {
@@ -231,3 +244,70 @@ grep -o 'assets/index-[A-Za-z0-9_-]*\.js' /var/www/calendar/index.html
 - The proxy only fetches `calendar.magister.net` over HTTPS — even
   if a request is forged, an arbitrary host or path is rejected with
   HTTP 400 before any upstream connection is opened.
+
+## 9. Google Calendar OAuth setup
+
+The Node server exposes `/api/google/*` routes (status, login, callback,
+logout, selection, events). Nothing is enabled until three environment
+variables are present — without them `/api/google/status` answers
+`{"connected": false, "error": "…not configured…"}` and Settings simply
+shows Google as unavailable.
+
+### 9.1 Google Cloud Console
+
+1. Create a project at <https://console.cloud.google.com/> and
+   **enable the Google Calendar API** (APIs & Services → Library).
+2. Configure the **OAuth consent screen** (APIs & Services → OAuth
+   consent screen): User type **External**, fill in name/email, and add
+   your own Google account under **Test users** (the app stays in
+   "Testing" — no verification needed for personal use).
+3. **Create credentials → OAuth client ID → Web application** and add
+   the authorized redirect URI (exact match, no trailing slash):
+   - production: `https://calendar.f1nn.me/api/google/callback`
+   - development: `http://localhost:5173/api/google/callback`
+4. Copy the generated **client ID** and **client secret**.
+
+The app requests the least-privilege scopes `calendar.readonly`,
+`calendar.events`, `openid`, `email` (see `GOOGLE_SCOPES` in
+`server/googleTypes.ts`).
+
+### 9.2 Server environment
+
+Add to `/opt/personal-calendar-proxy/.env` (see §3) and restart the
+service (`sudo systemctl restart personal-calendar-proxy`):
+
+```
+GOOGLE_CLIENT_ID=….apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=…
+GOOGLE_REDIRECT_URI=https://calendar.f1nn.me/api/google/callback
+```
+
+Tokens are written to a separate `google-auth.json` next to the main
+storage file (`GOOGLE_AUTH_PATH` overrides the location) with `0600`
+permissions — they never appear in logs, in `GET /api/storage`, or in
+any response besides `/api/google/status`'s non-secret fields.
+
+### 9.3 Nginx
+
+The `/api/` location block from §5 must be live — Google routes are
+ordinary same-origin API calls, so without the proxy the frontend would
+receive `index.html` instead of JSON.
+
+### 9.4 Verify
+
+```bash
+# JSON — "not configured" only before the env vars are set:
+curl -i https://calendar.f1nn.me/api/google/status
+
+# then in the app: Settings → Google Calendar → Connect.
+# After consent you land on /?google=connected (Settings opens with a
+# toast), tick the calendars to import, and the next sync includes them.
+curl -i https://calendar.f1nn.me/api/google/status   # connected: true + email
+```
+
+Local development uses the same flow against a locally running server:
+`npm run build:server`, export the three vars with
+`GOOGLE_REDIRECT_URI=http://localhost:5173/api/google/callback` and a
+writable `STORAGE_PATH`/`GOOGLE_AUTH_PATH`, then
+`node dist-server/server.js`. The Vite dev server proxies
+`/api/google` to `127.0.0.1:3000` (see `vite.config.ts`).
