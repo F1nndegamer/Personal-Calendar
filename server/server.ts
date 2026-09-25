@@ -16,6 +16,8 @@
  *   POST /api/google/selection   → saves { calendarIds }
  *   GET  /api/google/events      → events for the selected calendars
  *   POST /api/google/events      → create an event on Google Calendar
+ *   POST /api/google/push        → mirror the local event set (diffed)
+ *   POST /api/google/push-target → choose the push target calendar
  *
  * STORAGE_PATH env var controls where data is saved.
  */

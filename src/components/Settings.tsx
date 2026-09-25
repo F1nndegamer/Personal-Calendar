@@ -3,7 +3,9 @@ import { X } from 'lucide-react';
 import { APP_VERSION } from '../version';
 import { useDialogA11y } from '../hooks/useDialogA11y';
 import { refreshGoogleAvailability, resetGoogleAvailabilityCache } from '../integrations';
+import { setPushTarget } from '../integrations/googlePush';
 import type { GoogleStatusResponse } from '../../server/googleTypes';
+import { isWritableRole } from '../../server/googleApi';
 
 interface Props {
   feedUrl: string;
@@ -128,6 +130,19 @@ export function Settings({
     }
   };
 
+  const changePushTarget = async (calendarId: string) => {
+    setGoogleBusy(true);
+    try {
+      await setPushTarget(calendarId);
+      setGoogle((s) => (s ? { ...s, pushCalendarId: calendarId } : s));
+      setGoogleError(null);
+    } catch (err) {
+      setGoogleError(err instanceof Error ? err.message : 'Could not save the push calendar');
+    } finally {
+      setGoogleBusy(false);
+    }
+  };
+
   const handleSave = () => {
     setSaving(true);
     onSave(value.trim());
@@ -179,8 +194,9 @@ export function Settings({
           <div className="settings-section-title">Google Calendar</div>
           <p className="settings-section-desc">
             Connect a Google account to import events from the calendars you
-            pick, alongside your Magister feed. Authorization runs on the
-            server — your tokens never reach the browser.
+            pick, and to keep your own calendar synced back to Google.
+            Authorization runs on the server — your tokens never reach the
+            browser.
           </p>
           {googleLoading ? (
             <span className="settings-hint">Checking connection…</span>
@@ -216,6 +232,45 @@ export function Settings({
               <span className="settings-hint">
                 Only the checked calendars are imported.
               </span>
+              {(() => {
+                const writable = google.calendars.filter((c) => isWritableRole(c.accessRole));
+                if (writable.length === 0) return null;
+                const current =
+                  google.pushCalendarId ??
+                  google.calendars.find((c) => c.primary)?.id ??
+                  writable[0].id;
+                return (
+                  <>
+                    <label className="field">
+                      <span>Push my calendar to</span>
+                      <select
+                        value={current}
+                        disabled={googleBusy}
+                        onChange={(e) => void changePushTarget(e.target.value)}
+                      >
+                        {writable.map((cal) => (
+                          <option key={cal.id} value={cal.id}>
+                            {cal.summary}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <span className="settings-hint">
+                      Your Magister lessons and events you create in the app are
+                      kept up to date in this calendar automatically. Events
+                      imported from Google are never pushed back.
+                    </span>
+                    {google.lastPushAt != null && (
+                      <span className="settings-hint">
+                        Last pushed {new Date(google.lastPushAt).toLocaleString()}
+                      </span>
+                    )}
+                    {google.lastPushError && (
+                      <span className="settings-hint">{google.lastPushError}</span>
+                    )}
+                  </>
+                );
+              })()}
               {googleError && <span className="settings-hint">{googleError}</span>}
             </>
           ) : (

@@ -92,5 +92,40 @@ export interface GoogleStatusResponse {
   selectedCalendarIds: string[];
   lastSyncAt?: number;
   error?: string;
+  /** Calendar id that local events are pushed to (server default when unset). */
+  pushCalendarId?: string;
+  /** Epoch ms of the last successful push (app → Google), if any. */
+  lastPushAt?: number;
+  /** Human-readable detail for the last failed push, if any. */
+  lastPushError?: string;
+}
+
+/**
+ * One local event as sent by the browser to `POST /api/google/push`.
+ * The list is the *complete* desired state of non-Google events — anything
+ * previously pushed but missing from it gets deleted on Google's side.
+ */
+export interface GooglePushEvent {
+  /** Local CalendarEvent id (stable, used as the mapping key). */
+  id: string;
+  title: string;
+  /** ISO date-time */
+  start: string;
+  /** ISO date-time */
+  end: string;
+  description?: string;
+}
+
+/** Server ↔ frontend contract for `POST /api/google/push`. */
+export interface GooglePushResponse {
+  ok: boolean;
+  created: number;
+  updated: number;
+  deleted: number;
+  skipped: number;
+  /** Per-event failures (partial success still returns 200 with ok:false). */
+  errors?: { id: string; error: string }[];
+  /** Fatal error message (502/401/… responses). */
+  error?: string;
 }
 

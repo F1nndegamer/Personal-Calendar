@@ -2,7 +2,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { handleGoogleRequest, isGooglePath } from '../googleRoutes.js';
+import { handleGoogleRequest, isGooglePath, setPushInFlight } from '../googleRoutes.js';
+import { contentKey } from '../googlePush.js';
 import type { GoogleAuthData } from '../googleStore.js';
 
 function makeReq(url: string, method = 'GET', headers: Record<string, string> = {}): IncomingMessage {
@@ -96,6 +97,54 @@ function connectedAuth(): GoogleAuthData {
   };
 }
 
+/** POST a JSON payload through `handleGoogleRequest` (body via microtask). */
+async function postJson(
+  url: string,
+  payload: unknown,
+  deps?: Parameters<typeof handleGoogleRequest>[3],
+): Promise<ReturnType<typeof makeRes>> {
+  const res = makeRes();
+  const req = makeReq(url, 'POST', { 'Content-Type': 'application/json' });
+  queueMicrotask(() => {
+    req.emit('data', Buffer.from(JSON.stringify(payload)));
+    req.emit('end');
+  });
+  await handleGoogleRequest(req, res, url, deps);
+  await new Promise((r) => setTimeout(r, 10));
+  return res;
+}
+
+/** Calendar-list + events fetch mock for push routes. */
+function pushFetch(accessRole = 'owner'): { fetchImpl: typeof fetch; posts: string[] } {
+  const posts: string[] = [];
+  const fetchImpl = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+    const u = String(url);
+    const method = init?.method ?? 'GET';
+    if (u.includes('/users/me/calendarList')) {
+      return {
+        ok: true, status: 200,
+        json: async () => ({
+          items: [{ id: 'primary', summary: 'My primary calendar', primary: true, accessRole }],
+        }),
+      };
+    }
+    if (method === 'POST' && u.includes('/calendars/primary/events')) {
+      posts.push(u);
+      return { ok: true, status: 201, json: async () => ({ id: 'g-new' }) };
+    }
+    if (method === 'PATCH' && u.includes('/calendars/primary/events/')) {
+      posts.push(u);
+      return { ok: true, status: 200, json: async () => ({}) };
+    }
+    if (method === 'DELETE' && u.includes('/calendars/primary/events/')) {
+      posts.push(u);
+      return { ok: true, status: 204, json: async () => ({}) };
+    }
+    throw new Error(`unexpected fetch: ${u}`);
+  }) as unknown as typeof fetch;
+  return { fetchImpl, posts };
+}
+
 describe('isGooglePath', () => {
   it('recognises exactly the Google endpoints', () => {
     for (const p of [
@@ -105,6 +154,8 @@ describe('isGooglePath', () => {
       '/api/google/logout',
       '/api/google/selection',
       '/api/google/events?timeMin=a&timeMax=b',
+      '/api/google/push',
+      '/api/google/push-target',
     ]) {
       expect(isGooglePath(p)).toBe(true);
     }
@@ -330,4 +381,188 @@ describe('handleGoogleRequest', () => {
     expect(res.statusCode).toBe(302);
     expect(res.headers.location).toBe('http://localhost:5173/?google=error');
   });
+
+  it('rejects a push with an invalid body', async () => {
+    const res = await postJson('/api/google/push', { events: 'nope' }, {
+      readAuth: () => connectedAuth(), writeAuth: vi.fn(),
+    });
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body()).error).toMatch(/events must be an array/);
+  });
+
+  it('answers 401 on push when Google is not connected', async () => {
+    const res = await postJson('/api/google/push', { events: [] }, {
+      readAuth: () => ({ tokens: null }), writeAuth: vi.fn(),
+    });
+    expect(res.statusCode).toBe(401);
+    expect(JSON.parse(res.body()).error).toMatch(/not connected/i);
+  });
+
+  it('no-ops an empty push without touching Google', async () => {
+    const { fetchImpl } = pushFetch();
+    const res = await postJson('/api/google/push', { events: [] }, {
+      readAuth: () => connectedAuth(), writeAuth: vi.fn(), fetchImpl,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body())).toMatchObject({ ok: true, created: 0, deleted: 0 });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('creates pushed events and stores mapping + target + timestamp', async () => {
+    const { fetchImpl, posts } = pushFetch();
+    const writeAuth = vi.fn();
+    const event = { id: 'a', title: 'Wiskunde', start: '2026-09-08T08:00:00Z', end: '2026-09-08T09:00:00Z' };
+    const res = await postJson('/api/google/push', { events: [event] }, {
+      readAuth: () => connectedAuth(), writeAuth, fetchImpl,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body())).toMatchObject({ ok: true, created: 1, skipped: 0 });
+    expect(posts).toHaveLength(1);
+    expect(writeAuth).toHaveBeenCalledWith(expect.objectContaining({
+      pushCalendarId: 'primary',
+      lastPushAt: expect.any(Number),
+      lastPushError: undefined,
+      pushed: expect.objectContaining({
+        a: { calendarId: 'primary', eventId: 'g-new', key: expect.any(String) },
+      }),
+    }));
+  });
+
+  it('skips unchanged events on push', async () => {
+    const { fetchImpl, posts } = pushFetch();
+    const event = { id: 'a', title: 'Wiskunde', start: '2026-09-08T08:00:00Z', end: '2026-09-08T09:00:00Z' };
+    const auth: GoogleAuthData = {
+      ...connectedAuth(),
+      pushed: { a: { calendarId: 'primary', eventId: 'g-9', key: contentKey(event) } },
+    };
+    const res = await postJson('/api/google/push', { events: [event] }, {
+      readAuth: () => auth, writeAuth: vi.fn(), fetchImpl,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body())).toMatchObject({ ok: true, created: 0, skipped: 1 });
+    expect(posts).toHaveLength(0);
+  });
+
+  it('deletes mapped events missing from the payload', async () => {
+    const { fetchImpl, posts } = pushFetch();
+    const auth: GoogleAuthData = {
+      ...connectedAuth(),
+      pushed: { gone: { calendarId: 'primary', eventId: 'g-del', key: 'k' } },
+    };
+    const res = await postJson('/api/google/push', { events: [] }, {
+      readAuth: () => auth, writeAuth: vi.fn(), fetchImpl,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body())).toMatchObject({ ok: true, deleted: 1 });
+    expect(posts).toHaveLength(1);
+    expect(posts[0]).toContain('/events/g-del');
+  });
+
+  it('answers 403 when the push target calendar is read-only', async () => {
+    const { fetchImpl } = pushFetch('reader');
+    const event = { id: 'a', title: 'X', start: '2026-09-08T08:00:00Z', end: '2026-09-08T09:00:00Z' };
+    const res = await postJson('/api/google/push', { events: [event] }, {
+      readAuth: () => connectedAuth(), writeAuth: vi.fn(), fetchImpl,
+    });
+    expect(res.statusCode).toBe(403);
+    expect(JSON.parse(res.body()).error).toMatch(/read-only/i);
+  });
+
+  it('answers 429 while another push is running and recovers after', async () => {
+    setPushInFlight(true);
+    try {
+      const res = await postJson('/api/google/push', { events: [] }, {
+        readAuth: () => connectedAuth(), writeAuth: vi.fn(),
+      });
+      expect(res.statusCode).toBe(429);
+    } finally {
+      setPushInFlight(false);
+    }
+    const res2 = await postJson('/api/google/push', { events: [] }, {
+      readAuth: () => connectedAuth(), writeAuth: vi.fn(),
+    });
+    expect(res2.statusCode).toBe(200);
+  });
+
+  it('saves a writable push target calendar', async () => {
+    const { fetchImpl } = pushFetch();
+    const writeAuth = vi.fn();
+    const res = await postJson('/api/google/push-target', { calendarId: 'primary' }, {
+      readAuth: () => connectedAuth(), writeAuth, fetchImpl,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(writeAuth).toHaveBeenCalledWith(expect.objectContaining({ pushCalendarId: 'primary' }));
+  });
+
+  it('rejects a missing or read-only push target', async () => {
+    const missing = await postJson('/api/google/push-target', { calendarId: 'nope@cal' }, {
+      readAuth: () => connectedAuth(), writeAuth: vi.fn(), fetchImpl: pushFetch().fetchImpl,
+    });
+    expect(missing.statusCode).toBe(400);
+    const bad = await postJson('/api/google/push-target', { calendarId: 42 }, {
+      readAuth: () => connectedAuth(), writeAuth: vi.fn(),
+    });
+    expect(bad.statusCode).toBe(400);
+    const readOnly = await postJson('/api/google/push-target', { calendarId: 'primary' }, {
+      readAuth: () => connectedAuth(), writeAuth: vi.fn(), fetchImpl: pushFetch('reader').fetchImpl,
+    });
+    expect(readOnly.statusCode).toBe(403);
+  });
+
+  it('excludes pushed events from imports', async () => {
+    const auth: GoogleAuthData = {
+      ...connectedAuth(),
+      selectedCalendarIds: ['cal-1'],
+      pushed: { a: { calendarId: 'cal-1', eventId: 'e1', key: 'k' } },
+    };
+    const fetchImpl = vi.fn().mockImplementation(async () => ({
+      ok: true, status: 200,
+      json: async () => ({
+        items: [{
+          id: 'e1', summary: 'Wiskunde',
+          start: { dateTime: '2026-09-08T08:00:00Z' },
+          end: { dateTime: '2026-09-08T09:00:00Z' },
+        }],
+      }),
+    })) as unknown as typeof fetch;
+    const res = makeRes();
+    const url = '/api/google/events?timeMin=2026-09-07T00:00:00Z&timeMax=2026-09-14T00:00:00Z';
+    await handleGoogleRequest(makeReq(url), res, url, {
+      readAuth: () => auth, writeAuth: vi.fn(), fetchImpl,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body()).events).toEqual([]);
+  });
+
+  it('preserves the push mapping and selection on logout', async () => {
+    const pushed = { a: { calendarId: 'primary', eventId: 'g-1', key: 'k' } };
+    const auth: GoogleAuthData = {
+      ...connectedAuth(), selectedCalendarIds: ['x'], pushCalendarId: 'primary', pushed,
+    };
+    const writeAuth = vi.fn();
+    const res = makeRes();
+    await handleGoogleRequest(makeReq('/api/google/logout', 'POST'), res, '/api/google/logout', {
+      readAuth: () => auth, writeAuth,
+      fetchImpl: (vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) }) as unknown as typeof fetch),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(writeAuth).toHaveBeenCalledWith(expect.objectContaining({
+      tokens: null, selectedCalendarIds: ['x'], pushCalendarId: 'primary', pushed,
+    }));
+  });
+
+  it('exposes push state on status', async () => {
+    const auth: GoogleAuthData = {
+      ...connectedAuth(), pushCalendarId: 'primary', lastPushAt: 123, lastPushError: 'boom',
+    };
+    const res = makeRes();
+    await handleGoogleRequest(makeReq('/api/google/status'), res, '/api/google/status', {
+      readAuth: () => auth, writeAuth: vi.fn(), fetchImpl: pushFetch().fetchImpl,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body())).toMatchObject({
+      connected: true, pushCalendarId: 'primary', lastPushAt: 123, lastPushError: 'boom',
+    });
+  });
 });
+

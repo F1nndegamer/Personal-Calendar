@@ -5,7 +5,9 @@
  *   GET  /api/google/status  GET /api/google/login
  *   GET  /api/google/callback  POST /api/google/logout
  *   POST /api/google/selection  GET /api/google/events
- *   POST /api/google/events
+ *   POST /api/google/events      → create a single event on Google Calendar
+ *   POST /api/google/push        → mirror the full local event set (diffed)
+ *   POST /api/google/push-target → choose the calendar pushes land in
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { GOOGLE_SCOPES, type GoogleStatusResponse } from './googleTypes.js';
@@ -32,14 +34,30 @@ import {
 } from './googleOAuth.js';
 import {
   mapCalendarEntryToRef,
+  isWritableRole,
   mapGoogleEventToExternal,
 } from './googleApi.js';
+import {
+  parsePushBody,
+  pushErrorSummary,
+  pushResponse,
+  syncPushedEvents,
+  type SyncPushResult,
+} from './googlePush.js';
 
 export interface GoogleRouteDeps {
   readAuth?: () => GoogleAuthData;
   writeAuth?: (data: GoogleAuthData) => void;
   fetchImpl?: FetchImpl;
   now?: () => number;
+}
+
+/** Single-flight guard: one push run at a time (multi-tab safety). */
+let pushInFlight = false;
+
+/** Test hook — simulates a running push (should stay false otherwise). */
+export function setPushInFlight(value: boolean): void {
+  pushInFlight = value;
 }
 
 function json(res: ServerResponse, status: number, body: unknown): void {
@@ -54,7 +72,8 @@ export function isGooglePath(url: string): boolean {
   const path = url.split('?')[0];
   return path === '/api/google/status' || path === '/api/google/login' ||
     path === '/api/google/callback' || path === '/api/google/logout' ||
-    path === '/api/google/selection' || path === '/api/google/events';
+    path === '/api/google/selection' || path === '/api/google/events' ||
+    path === '/api/google/push' || path === '/api/google/push-target';
 }
 function googleConfig(): GoogleOAuthConfig | null {
   const clientId = (process.env.GOOGLE_CLIENT_ID ?? '').trim();
@@ -117,6 +136,9 @@ async function buildStatus(
       connected: false, email: auth.email, calendars: [],
       selectedCalendarIds: auth.selectedCalendarIds ?? [],
       lastSyncAt: auth.lastSyncAt, error: 'Google session expired — please reconnect.',
+      pushCalendarId: auth.pushCalendarId,
+      lastPushAt: auth.lastPushAt,
+      lastPushError: auth.lastPushError,
     };
   }
   try {
@@ -131,6 +153,9 @@ async function buildStatus(
     return {
       connected: true, email: email ?? auth.email, calendars,
       selectedCalendarIds: selected, lastSyncAt: auth.lastSyncAt, error: auth.lastError,
+      pushCalendarId: auth.pushCalendarId,
+      lastPushAt: auth.lastPushAt,
+      lastPushError: auth.lastPushError,
     };
   } catch (err) {
     return {
@@ -217,7 +242,16 @@ export async function handleGoogleRequest(
     const auth = readAuth();
     const access = auth.tokens?.accessToken;
     const refresh = auth.tokens?.refreshToken;
-    writeAuth({ tokens: null, email: undefined });
+    // Keep the import selection and push mapping so a reconnect resumes
+    // where we left off instead of re-importing / re-pushing everything.
+    writeAuth({
+      tokens: null, email: undefined,
+      selectedCalendarIds: auth.selectedCalendarIds,
+      pushCalendarId: auth.pushCalendarId,
+      pushed: auth.pushed,
+      lastPushAt: auth.lastPushAt,
+      lastPushError: undefined,
+    });
     void (async () => {
       try {
         if (access) await revokeToken(access, fetchImpl);
@@ -252,6 +286,11 @@ export async function handleGoogleRequest(
     let accessToken = await validAccessToken(auth0, config, writeAuth, fetchImpl);
     if (!accessToken) { json(res, 401, { ok: false, error: 'Google is not connected' }); return true; }
     const calendars = selectedCalendars(auth0);
+    // Events we pushed to Google ourselves must never come back in as
+    // imports (otherwise pushing into an imported calendar duplicates).
+    const pushedExternal = new Set(
+      Object.values(auth0.pushed ?? {}).map((p) => `${p.calendarId}:${p.eventId}`),
+    );
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
         const out = [];
@@ -262,7 +301,7 @@ export async function handleGoogleRequest(
               id: ev.id ?? '', summary: ev.summary, description: ev.description,
               start: ev.start, end: ev.end, status: ev.status, updated: ev.updated,
             }, calId);
-            if (m) out.push(m);
+            if (m && !pushedExternal.has(m.externalId)) out.push(m);
           }
         }
         writeAuth({ ...readAuth(), lastSyncAt: Date.now(), lastError: undefined });
@@ -322,6 +361,124 @@ export async function handleGoogleRequest(
       json(res, 502, { ok: false, error: err instanceof Error ? err.message : 'Google request failed' });
     }
     return true;
+  }
+  if (path === '/api/google/push' && req.method === 'POST') {
+    if (pushInFlight) {
+      json(res, 429, { ok: false, error: 'A push is already in progress' });
+      return true;
+    }
+    pushInFlight = true;
+    try {
+      let parsed: unknown;
+      try { parsed = await readJsonBody(req, 512 * 1024); }
+      catch (e) { json(res, 400, { ok: false, error: e instanceof Error ? e.message : 'Bad request' }); return true; }
+      const body = parsePushBody(parsed);
+      if (!body.ok) { json(res, 400, { ok: false, error: body.error }); return true; }
+
+      const auth = readAuth();
+      let accessToken = await validAccessToken(auth, config, writeAuth, fetchImpl);
+      if (!accessToken) { json(res, 401, { ok: false, error: 'Google is not connected' }); return true; }
+
+      const existingPushed = auth.pushed ?? {};
+      // Nothing to do: no events and nothing previously pushed.
+      if (body.events.length === 0 && Object.keys(existingPushed).length === 0) {
+        json(res, 200, pushResponse({ created: 0, updated: 0, deleted: 0, skipped: 0, errors: [] }));
+        return true;
+      }
+
+      // Resolve + validate the target calendar (stored choice, else primary).
+      let entries;
+      try { entries = await listCalendars(accessToken, fetchImpl); }
+      catch (err) {
+        json(res, 502, { ok: false, error: err instanceof Error ? err.message : 'Google request failed' });
+        return true;
+      }
+      const targetId = auth.pushCalendarId
+        ?? entries.find((e) => e.primary)?.id
+        ?? entries.find((e) => isWritableRole(e.accessRole))?.id
+        ?? 'primary';
+      const target = entries.find((e) => e.id === targetId);
+      if (!target) {
+        json(res, 400, { ok: false, error: 'The chosen push calendar no longer exists — pick another in Settings' });
+        return true;
+      }
+      if (!isWritableRole(target.accessRole)) {
+        json(res, 403, { ok: false, error: 'The push calendar is read-only — pick another in Settings' });
+        return true;
+      }
+
+      let result: SyncPushResult | undefined;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          result = await syncPushedEvents({
+            accessToken, calendarId: targetId, events: body.events,
+            pushed: existingPushed, fetchImpl,
+          });
+          break;
+        } catch (err) {
+          if (attempt === 0 && isAuthError(err) && auth.tokens?.refreshToken) {
+            try {
+              const r = await refreshAccessToken(config, auth.tokens.refreshToken, fetchImpl);
+              writeAuth({
+                ...readAuth(),
+                tokens: {
+                  accessToken: r.access_token, expiresAt: Date.now() + r.expires_in * 1000,
+                  refreshToken: r.refresh_token ?? auth.tokens.refreshToken,
+                  scope: r.scope ?? auth.tokens.scope, tokenType: r.token_type ?? auth.tokens.tokenType,
+                },
+              });
+              accessToken = r.access_token;
+              continue;
+            } catch { /* fall through to the error response below */ }
+          }
+          const msg = err instanceof Error ? err.message : 'Google request failed';
+          writeAuth({ ...readAuth(), lastPushError: msg });
+          json(res, 502, { ok: false, error: msg });
+          return true;
+        }
+      }
+      if (!result) { json(res, 502, { ok: false, error: 'Google push failed' }); return true; }
+
+      writeAuth({
+        ...readAuth(),
+        pushed: result.pushed,
+        pushCalendarId: targetId,
+        lastPushAt: now(),
+        lastPushError: pushErrorSummary(result.stats),
+      });
+      json(res, 200, pushResponse(result.stats));
+      return true;
+    } finally {
+      pushInFlight = false;
+    }
+  }
+  if (path === '/api/google/push-target' && req.method === 'POST') {
+    let parsed: unknown;
+    try { parsed = await readJsonBody(req); }
+    catch (e) { json(res, 400, { ok: false, error: e instanceof Error ? e.message : 'Bad request' }); return true; }
+    const calendarId = (parsed as { calendarId?: unknown }).calendarId;
+    if (typeof calendarId !== 'string' || calendarId.trim().length === 0 || calendarId.length > 512) {
+      json(res, 400, { ok: false, error: 'calendarId must be a non-empty string' });
+      return true;
+    }
+    const auth = readAuth();
+    const accessToken = await validAccessToken(auth, config, writeAuth, fetchImpl);
+    if (!accessToken) { json(res, 401, { ok: false, error: 'Google is not connected' }); return true; }
+    try {
+      const entries = await listCalendars(accessToken, fetchImpl);
+      const target = entries.find((e) => e.id === calendarId);
+      if (!target) { json(res, 400, { ok: false, error: 'No such calendar for this account' }); return true; }
+      if (!isWritableRole(target.accessRole)) {
+        json(res, 403, { ok: false, error: 'That calendar is read-only' });
+        return true;
+      }
+      writeAuth({ ...readAuth(), pushCalendarId: calendarId });
+      json(res, 200, { ok: true });
+      return true;
+    } catch (err) {
+      json(res, 502, { ok: false, error: err instanceof Error ? err.message : 'Google request failed' });
+      return true;
+    }
   }
   text(res, 405, 'Method Not Allowed');
   return true;

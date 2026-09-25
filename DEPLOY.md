@@ -248,10 +248,10 @@ grep -o 'assets/index-[A-Za-z0-9_-]*\.js' /var/www/calendar/index.html
 ## 9. Google Calendar OAuth setup
 
 The Node server exposes `/api/google/*` routes (status, login, callback,
-logout, selection, events). Nothing is enabled until three environment
-variables are present — without them `/api/google/status` answers
-`{"connected": false, "error": "…not configured…"}` and Settings simply
-shows Google as unavailable.
+logout, selection, events, push, push-target). Nothing is enabled until
+three environment variables are present — without them `/api/google/status`
+answers `{"connected": false, "error": "…not configured…"}` and Settings
+simply shows Google as unavailable.
 
 ### 9.1 Google Cloud Console
 
@@ -311,3 +311,43 @@ Local development uses the same flow against a locally running server:
 writable `STORAGE_PATH`/`GOOGLE_AUTH_PATH`, then
 `node dist-server/server.js`. The Vite dev server proxies
 `/api/google` to `127.0.0.1:3000` (see `vite.config.ts`).
+
+### 9.5 Push (app → Google Calendar)
+
+Sync is bidirectional: after a successful import, the browser mirrors the
+full local event set (manual + Magister, `google:`-sourced events excluded)
+into one chosen Google calendar via `POST /api/google/push`.
+
+How it behaves:
+
+- **Choose a target** in Settings → Google Calendar → *Push to*. Only
+  calendars with a writable role (`owner`/`writer`) are listed, and
+  `POST /api/google/push-target` re-verifies the role server-side (403 for
+  read-only, 400 for an unknown calendar). Main-calendar events are never
+  pushed back into the calendar they were imported from.
+- **Diffing, not re-uploading.** The server keeps a `pushed` mapping
+  (`localEventId → {calendarId, eventId, contentKey}`) inside
+  `google-auth.json`. Unchanged events are skipped; changed content is
+  patched; deleted events are removed on Google; switching the target
+  calendar moves every event (insert in the new calendar, delete the old
+  copy).
+- **The pushed list is authoritative.** A mapped event missing from the
+  payload is deleted, so the push only runs after a complete event set is
+  available (mount + debounced sync/edits).
+- **Limits:** max 2000 events per request (512 KB body), 3 concurrent
+  Calendar API calls, one retry with backoff on 429, and a token refresh +
+  single retry on 401. Concurrent pushes answer `429 {ok:false}` — the
+  frontend treats this as "busy" and retries later rather than showing an
+  error.
+
+Because events are pushed by the server, the write scope `calendar.events`
+must stay in `GOOGLE_SCOPES` (§9.1). Accounts connected before the scope
+was added need one re-consent (Settings → Disconnect → Connect). No extra
+env vars, Nginx rules or storage migrations are required: the mapping lives
+in the existing `google-auth.json`, and `GET /api/google/events` filters
+out events that this app pushed so imports never re-import them.
+
+```bash
+# after at least one push, the status route reports the target + result:
+curl -s https://calendar.f1nn.me/api/google/status   # pushCalendarId, lastPushAt, lastPushError
+```

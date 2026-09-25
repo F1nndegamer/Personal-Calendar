@@ -15,6 +15,7 @@ import { QuickAdd } from './quickAdd/QuickAdd';
 import type { ParsedQuickAdd } from './quickAdd/types';
 import { loadSnapshot, saveSnapshot } from './storage/storage';
 import { useScheduleSync } from './integrations/useScheduleSync';
+import { useGooglePush } from './integrations/useGooglePush';
 import { Settings } from './components/Settings';
 import { loadFromServer, saveToServer } from './serverStorage';
 import { usePwaInstall } from './pwa';
@@ -526,6 +527,31 @@ export default function App() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sync.state.status, sync.state.lastSyncAt]);
+
+  // Google push (app → Google) — mirrors local + Magister events into the
+  // chosen Google calendar. Debounced after every event change (same shape
+  // as the persist effect): the server diffs the payload, so pushes with
+  // nothing to do are cheap no-ops. The hook also runs one kickoff push
+  // shortly after mount, and skips silently when Google isn't connected.
+  const push = useGooglePush({ getEvents: () => eventsRef.current });
+  useEffect(() => {
+    if (events === initial.events) return;
+    push.schedulePush();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [events]);
+
+  // Surface push failures as a toast (deduped so a persistent error only
+  // announces once; successes stay quiet — they happen on every change).
+  const lastPushErrorRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const p = push.state;
+    if (p.status !== 'error' || !p.errorMessage || p.errorMessage === lastPushErrorRef.current) {
+      return;
+    }
+    lastPushErrorRef.current = p.errorMessage;
+    showToast(`Google push failed — ${p.errorMessage}`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [push.state.status, push.state.errorMessage]);
 
   const days = useMemo(() => {
     if (view === 'day') return [startOfDay(anchor)];

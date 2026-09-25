@@ -46,6 +46,18 @@ function isTokens(v) {
 function isStringArray(v) {
     return Array.isArray(v) && v.every((x) => typeof x === 'string');
 }
+/** Validate the persisted `pushed` map (drops malformed entries, caps size). */
+function isPushedMap(v) {
+    if (!v || typeof v !== 'object' || Array.isArray(v))
+        return false;
+    const entries = Object.values(v);
+    if (entries.length === 0 || entries.length > 5000)
+        return false;
+    return entries.every((e) => !!e && typeof e === 'object' &&
+        typeof e.calendarId === 'string' &&
+        typeof e.eventId === 'string' &&
+        typeof e.key === 'string');
+}
 export function readGoogleAuth() {
     try {
         const path = googleAuthPath();
@@ -62,6 +74,10 @@ export function readGoogleAuth() {
                 : undefined,
             lastSyncAt: typeof parsed.lastSyncAt === 'number' ? parsed.lastSyncAt : undefined,
             lastError: typeof parsed.lastError === 'string' ? parsed.lastError : undefined,
+            pushCalendarId: typeof parsed.pushCalendarId === 'string' ? parsed.pushCalendarId : undefined,
+            pushed: isPushedMap(parsed.pushed) ? parsed.pushed : undefined,
+            lastPushAt: typeof parsed.lastPushAt === 'number' ? parsed.lastPushAt : undefined,
+            lastPushError: typeof parsed.lastPushError === 'string' ? parsed.lastPushError : undefined,
         };
     }
     catch {
