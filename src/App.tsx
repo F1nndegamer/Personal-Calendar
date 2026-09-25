@@ -104,9 +104,18 @@ function isEditingElement(el: Element | null): boolean {
   );
 }
 
+interface ToastAction {
+  label: string;
+  run: () => void;
+}
+
 interface Toast {
   id: number;
   message: string;
+  /** Optional inline affordance (e.g. Undo) rendered as a button. */
+  action?: ToastAction;
+  /** How long the toast stays up, in ms. Defaults to 2400. */
+  durationMs?: number;
 }
 
 let toastId = 0;
@@ -384,11 +393,16 @@ export default function App() {
     }
   };
 
-  const showToast = (message: string) => {
+  const showToast = (message: string, opts?: { action?: ToastAction; durationMs?: number }) => {
     const id = ++toastId;
-    setToasts((t) => [...t, { id, message }]);
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 2400);
+    setToasts((t) => [...t, { id, message, action: opts?.action, durationMs: opts?.durationMs }]);
+    setTimeout(
+      () => setToasts((t) => t.filter((x) => x.id !== id)),
+      opts?.durationMs ?? 2400,
+    );
   };
+
+  const dismissToast = (id: number) => setToasts((t) => t.filter((x) => x.id !== id));
 
   // Global desktop shortcut: "N" opens the quick-add dialog.
   // Ignored when the user is typing inside an input/textarea/select/dialog/contenteditable.
@@ -637,15 +651,38 @@ export default function App() {
 
   const handleDeleteEvent = (id: string) => {
     const removed = events.find((e) => e.id === id);
+    const linkedTaskId = removed?.taskId;
     setEvents((prev) => prev.filter((e) => e.id !== id));
-    if (removed?.taskId) {
+    if (linkedTaskId) {
       setTasks((prev) =>
         prev.map((t) =>
-          t.id === removed.taskId ? { ...t, eventId: undefined } : t,
+          t.id === linkedTaskId ? { ...t, eventId: undefined } : t,
         ),
       );
     }
     setDialogEvent(null);
+    // Deletion is reversible for 5 s: the toast hands back the snapshot.
+    if (removed) {
+      const snapshot = removed;
+      showToast(`Deleted “${removed.title || 'Untitled event'}”.`, {
+        durationMs: 5000,
+        action: {
+          label: 'Undo',
+          run: () => {
+            setEvents((prev) =>
+              prev.some((e) => e.id === snapshot.id) ? prev : [...prev, snapshot],
+            );
+            if (linkedTaskId) {
+              setTasks((prev) =>
+                prev.map((t) =>
+                  t.id === linkedTaskId ? { ...t, eventId: snapshot.id } : t,
+                ),
+              );
+            }
+          },
+        },
+      });
+    }
   };
 
   // ----- tasks -----
@@ -703,11 +740,35 @@ export default function App() {
 
   const handleDeleteTask = (id: string) => {
     const removed = tasks.find((t) => t.id === id);
+    const linkedEvent = removed?.eventId
+      ? events.find((e) => e.id === removed.eventId)
+      : undefined;
     setTasks((prev) => prev.filter((t) => t.id !== id));
     if (removed?.eventId) {
       setEvents((prev) => prev.filter((e) => e.id !== removed.eventId));
     }
     setDialogTask(null);
+    // Deletion is reversible for 5 s: the toast hands back the snapshots.
+    if (removed) {
+      const taskSnapshot = removed;
+      const eventSnapshot = linkedEvent;
+      showToast(`Deleted “${removed.title || 'Untitled task'}”.`, {
+        durationMs: 5000,
+        action: {
+          label: 'Undo',
+          run: () => {
+            setTasks((prev) =>
+              prev.some((t) => t.id === taskSnapshot.id) ? prev : [...prev, taskSnapshot],
+            );
+            if (eventSnapshot) {
+              setEvents((prev) =>
+                prev.some((e) => e.id === eventSnapshot.id) ? prev : [...prev, eventSnapshot],
+              );
+            }
+          },
+        },
+      });
+    }
   };
 
   // ----- task → calendar drag & drop -----
@@ -935,11 +996,30 @@ export default function App() {
           </button>
         </div>
       )}
-      {toasts.map((t) => (
-        <div key={t.id} className="toast">
-          {t.message}
+      {toasts.length > 0 && (
+        <div className="toast-stack" aria-live="polite">
+          {toasts.map((t) => (
+            <div
+              key={t.id}
+              className={`toast${t.action ? ' toast-actionable' : ''}`}
+              role="status"
+            >
+              <span>{t.message}</span>
+              {t.action && (
+                <button
+                  className="toast-action"
+                  onClick={() => {
+                    t.action?.run();
+                    dismissToast(t.id);
+                  }}
+                >
+                  {t.action.label}
+                </button>
+              )}
+            </div>
+          ))}
         </div>
-      ))}
+      )}
     </div>
   );
 }
