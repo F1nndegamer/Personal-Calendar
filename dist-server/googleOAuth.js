@@ -6,6 +6,7 @@
  * tokens live in `googleStore.ts` and are never logged or sent
  * to the browser.
  */
+import { pushTag } from './googleTypes.js';
 const AUTH_BASE = 'https://accounts.google.com/o/oauth2/v2/auth';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 export const GOOGLE_API_BASE = 'https://www.googleapis.com/calendar/v3';
@@ -126,6 +127,7 @@ export async function fetchAccountEmail(accessToken, fetchImpl = fetch) {
         return undefined;
     }
 }
+/** Raw event shape returned by `events.list` (single definition in `googleTypes`). */
 /** One page of `events.list`. */
 export async function listEventsPage(accessToken, calendarId, timeMin, timeMax, pageToken, fetchImpl = fetch) {
     const params = new URLSearchParams({
@@ -163,7 +165,11 @@ export function isAuthError(err) {
     const code = err?.googleApiError?.code;
     return code === 401 || code === 403;
 }
-function eventInstant(iso) {
+/**
+ * Normalize an ISO date-time for comparisons; falls back to the raw string.
+ * (Shared with the push engine so signatures survive `Z` vs `.000Z`.)
+ */
+export function eventInstant(iso) {
     const t = new Date(iso).getTime();
     return Number.isNaN(t) ? iso : new Date(t).toISOString();
 }
@@ -176,6 +182,8 @@ export function toGoogleEventBody(input) {
     };
     if (input.description)
         body.description = input.description;
+    if (input.id)
+        body.extendedProperties = { private: pushTag(input.id) };
     return body;
 }
 /** Create an event. Returns the Google event id. */

@@ -534,6 +534,87 @@ describe('handleGoogleRequest', () => {
     expect(JSON.parse(res.body()).events).toEqual([]);
   });
 
+  it('never imports events stamped with our own push tag', async () => {
+    const auth: GoogleAuthData = { ...connectedAuth(), selectedCalendarIds: ['cal-1'] };
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true, status: 200,
+      json: async () => ({
+        items: [{
+          id: 'e1', summary: '3 Nat - LOO',
+          start: { dateTime: '2026-09-08T08:00:00Z' },
+          end: { dateTime: '2026-09-08T09:00:00Z' },
+          extendedProperties: { private: { pcApp: 'personal-calendar', pcLocalId: 'local-1' } },
+        }],
+      }),
+    }) as unknown as typeof fetch;
+    const res = makeRes();
+    const url = '/api/google/events?timeMin=2026-09-07T00:00:00Z&timeMax=2026-09-14T00:00:00Z';
+    await handleGoogleRequest(makeReq(url), res, url, {
+      readAuth: () => auth, writeAuth: vi.fn(), fetchImpl,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body()).events).toEqual([]);
+  });
+
+  it('sweeps stray copies when the target changed and reports the count', async () => {
+    const localEvent = {
+      id: 'local-1', title: 'Wiskunde',
+      start: '2026-09-08T08:00:00.000Z', end: '2026-09-08T09:00:00.000Z',
+    };
+    const auth: GoogleAuthData = {
+      ...connectedAuth(),
+      selectedCalendarIds: ['cal-old', 'websync'],
+      pushCalendarId: 'websync',
+      sweepTarget: 'cal-old',
+      pushed: { 'local-1': { calendarId: 'websync', eventId: 'g-1', key: contentKey(localEvent) } },
+    };
+    const calls: { method: string; url: string }[] = [];
+    const fetchImpl = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+      const u = String(url);
+      const method = init?.method ?? 'GET';
+      calls.push({ method, url: u });
+      if (u.includes('/users/me/calendarList')) {
+        return {
+          ok: true, status: 200,
+          json: async () => ({
+            items: [
+              { id: 'websync', summary: 'Websync', accessRole: 'owner' },
+              { id: 'cal-old', summary: 'My old calendar', primary: true, accessRole: 'owner' },
+            ],
+          }),
+        };
+      }
+      if (method === 'GET' && u.includes('/calendars/cal-old/events')) {
+        return {
+          ok: true, status: 200,
+          json: async () => ({
+            items: [{
+              id: 'orphan', summary: 'Wiskunde',
+              start: { dateTime: '2026-09-08T08:00:00Z' },
+              end: { dateTime: '2026-09-08T09:00:00Z' },
+            }],
+          }),
+        };
+      }
+      if (method === 'DELETE') return { ok: true, status: 204, json: async () => ({}) };
+      throw new Error(`unexpected ${method} ${u}`);
+    }) as unknown as typeof fetch;
+
+    const writeAuth = vi.fn();
+    const res = await postJson('/api/google/push', { events: [localEvent] }, {
+      readAuth: () => auth, writeAuth, fetchImpl,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body())).toMatchObject({ ok: true, swept: 1 });
+    expect(
+      calls.some((c) => c.method === 'DELETE' && c.url.includes('/calendars/cal-old/events/orphan')),
+    ).toBe(true);
+    // Booked as done for this target, so it does not re-run on every push.
+    expect(writeAuth).toHaveBeenCalledWith(
+      expect.objectContaining({ pushCalendarId: 'websync', sweepTarget: 'websync' }),
+    );
+  });
+
   it('preserves the push mapping and selection on logout', async () => {
     const pushed = { a: { calendarId: 'primary', eventId: 'g-1', key: 'k' } };
     const auth: GoogleAuthData = {

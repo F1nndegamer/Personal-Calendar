@@ -14,7 +14,7 @@
  */
 
 /** The current published version (semver: MAJOR.MINOR.PATCH). */
-export const APP_VERSION = '0.23.0';
+export const APP_VERSION = '0.24.0';
 
 /** How large a change set was. Drives which semver field is incremented. */
 export type BumpLevel = 'major' | 'minor' | 'patch';
@@ -36,6 +36,12 @@ export interface VersionEntry {
  * `APP_VERSION` — `src/__tests__/version.test.ts` enforces this.
  */
 export const VERSION_HISTORY: readonly VersionEntry[] = [
+  {
+    version: '0.24.0',
+    date: '2026-09-25',
+    level: 'minor',
+    summary: 'Google push: stop duplicate school events (per-batch mapping flush, tagged copies, stray-copy sweep, mirror filter)',
+  },
   {
     version: '0.23.0',
     date: '2026-09-25',

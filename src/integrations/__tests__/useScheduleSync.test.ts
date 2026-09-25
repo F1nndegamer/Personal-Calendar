@@ -309,4 +309,52 @@ describe('useScheduleSync', () => {
     expect(result.current.state.errorMessage).toContain('token expired');
     unmount();
   });
+
+  it('drops Google imports that mirror a local or Magister event', async () => {
+    const magister = makeProvider({ events: [ext('les-1')] });
+    const google: ScheduleProvider = {
+      id: 'google',
+      displayName: 'Google Calendar',
+      fetchSchedule: vi.fn().mockResolvedValue({
+        providerId: 'google',
+        fetchedAt: '2026-08-30T02:00:00Z',
+        events: [
+          // Our own pushed copy of the Magister lesson came back…
+          { ...ext('cal:copy'), subject: 'Vak les-1' },
+          // …while a genuinely foreign Google event is kept.
+          {
+            externalId: 'cal:other',
+            subject: 'Tandarts',
+            start: '2026-09-07T13:00:00.000Z',
+            end: '2026-09-07T13:30:00.000Z',
+          },
+        ],
+      }),
+    };
+    infoMock.getScheduleProvidersInfo.mockReturnValue({
+      providers: [magister, google],
+      configured: true,
+    });
+
+    let current: CalendarEvent[] = [manual];
+    const { result, unmount } = renderHook(() =>
+      useScheduleSync({
+        getEvents: () => current,
+        commitEvents: (next) => {
+          current = next;
+        },
+        persist: () => {
+          // noop
+        },
+        fetchRange: () => ({ from: new Date('2026-09-07'), to: new Date('2026-09-14') }),
+        autoSyncOnStart: true,
+      }),
+    );
+
+    await waitFor(() => expect(result.current.state.status).toBe('success'));
+    expect(current.filter((e) => e.externalId?.startsWith('google:')).length).toBe(1);
+    expect(current.some((e) => e.externalId === 'google:cal:other')).toBe(true);
+    expect(current.some((e) => e.externalId === 'magister:les-1')).toBe(true);
+    unmount();
+  });
 });

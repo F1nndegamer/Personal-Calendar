@@ -6,6 +6,7 @@
  * existing `normalizeExternalEvent` pipeline. No sockets here — network
  * calls live in `googleOAuth.ts` with an injectable `fetchImpl`.
  */
+import { isOwnCopyTag } from './googleTypes.js';
 function pickInstant(value, fallbackEnd) {
     if (!value)
         return null;
@@ -44,6 +45,8 @@ export function mapGoogleEventToExternal(event, calendarId) {
         start,
         end,
     };
+    if (isOwnCopyTag(event.extendedProperties?.private))
+        out.ownCopy = true;
     if (typeof event.description === 'string' && event.description.trim().length > 0) {
         out.description = event.description.trim().slice(0, 2000);
     }

@@ -40,6 +40,14 @@ export interface GoogleAuthData {
   lastPushAt?: number;
   /** Human-readable detail for the last failed push, if any. */
   lastPushError?: string;
+  /**
+   * Push target the last stray-copy sweep ran for. The sweep deletes copies of
+   * local events that earlier pushes left behind in imported calendars, so it
+   * only needs to run again when the target changes (or after a failed push).
+   */
+  sweepTarget?: string;
+  /** Epoch ms of the last stray-copy sweep, if any. */
+  sweepAt?: number;
 }
 
 const DEFAULT_AUTH: GoogleAuthData = { tokens: null };
@@ -112,6 +120,8 @@ export function readGoogleAuth(): GoogleAuthData {
       pushed: isPushedMap(parsed.pushed) ? (parsed.pushed as PushedEventMap) : undefined,
       lastPushAt: typeof parsed.lastPushAt === 'number' ? parsed.lastPushAt : undefined,
       lastPushError: typeof parsed.lastPushError === 'string' ? parsed.lastPushError : undefined,
+      sweepTarget: typeof parsed.sweepTarget === 'string' ? parsed.sweepTarget : undefined,
+      sweepAt: typeof parsed.sweepAt === 'number' ? parsed.sweepAt : undefined,
     };
   } catch {
     return DEFAULT_AUTH;

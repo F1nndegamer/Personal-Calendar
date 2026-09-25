@@ -5,10 +5,11 @@ import {
   parsePushBody,
   pushErrorSummary,
   pushResponse,
+  sweepOwnCopies,
   syncPushedEvents,
   MAX_PUSH_EVENTS,
 } from '../googlePush.js';
-import type { GooglePushEvent } from '../googleTypes.js';
+import type { GoogleApiEvent, GooglePushEvent } from '../googleTypes.js';
 import type { PushedEventMap } from '../googleStore.js';
 
 const ev = (id: string, over: Partial<GooglePushEvent> = {}): GooglePushEvent => ({
@@ -188,5 +189,207 @@ describe('push summaries', () => {
     const failed = { ...stats, errors: [{ id: 'a', error: 'Event create failed with HTTP 500' }] };
     expect(pushErrorSummary(failed)).toMatch(/Push failed for 1 event/);
     expect(pushResponse(failed).ok).toBe(false);
+  });
+
+  it('reports swept copies and omits the field when there were none', () => {
+    const stats = { created: 0, updated: 0, deleted: 0, skipped: 1, errors: [] };
+    expect(pushResponse(stats, 3)).toMatchObject({ swept: 3 });
+    expect(pushResponse(stats)).not.toHaveProperty('swept');
+  });
+});
+
+/**
+ * A failed push run used to lose the copies it had already created (the
+ * mapping was only written after the whole run), so the token-refresh retry
+ * created them a second time — and those untracked copies came back through
+ * the import as duplicates of the event they mirror.
+ */
+describe('syncPushedEvents progress persistence', () => {
+  /** POSTs succeed until `failOn` (1-based), from where they return 401. */
+  function flakyFetch(failOn: number) {
+    let posts = 0;
+    return vi.fn().mockImplementation(async (_url: string, init?: RequestInit) => {
+      if ((init?.method ?? 'GET') === 'POST') {
+        posts += 1;
+        const n = posts;
+        if (n >= failOn) return { ok: false, status: 401, json: async () => ({}) };
+        return { ok: true, status: 201, json: async () => ({ id: `g-${n}` }) };
+      }
+      return { ok: true, status: 204, json: async () => ({}) };
+    }) as unknown as typeof fetch;
+  }
+
+  const push = (
+    events: GooglePushEvent[],
+    pushed: PushedEventMap,
+    fetchImpl: typeof fetch,
+    persist: (next: PushedEventMap) => void,
+  ) => ({
+    accessToken: 'tok', calendarId: 'primary', events, pushed, fetchImpl, sleep: noSleep, persist,
+  });
+
+  it('persists the copies created before a mid-run failure', async () => {
+    const persisted: PushedEventMap[] = [];
+    await expect(
+      syncPushedEvents(push([ev('a'), ev('b'), ev('c')], {}, flakyFetch(3), (p) => persisted.push({ ...p }))),
+    ).rejects.toThrow(/401/);
+    expect(persisted).toHaveLength(1);
+    expect(persisted[0]).toMatchObject({ a: { eventId: 'g-1' }, b: { eventId: 'g-2' } });
+    expect(persisted[0].c).toBeUndefined();
+  });
+
+  it('lets the retry reuse those copies instead of duplicating them', async () => {
+    const persisted: PushedEventMap = {};
+    await expect(
+      syncPushedEvents(push([ev('a'), ev('b')], {}, flakyFetch(2), (p) => Object.assign(persisted, p))),
+    ).rejects.toThrow(/401/);
+    expect(persisted.a).toBeDefined();
+
+    const fetchImpl = fakeFetch();
+    const r = await syncPushedEvents(push([ev('a'), ev('b')], { ...persisted }, fetchImpl, () => undefined));
+    expect(r.stats).toMatchObject({ created: 1, skipped: 1, deleted: 0 });
+    expect(r.pushed.a).toEqual(persisted.a);
+  });
+
+  it('does not write when a batch changed nothing', async () => {
+    const persist = vi.fn();
+    const pushed: PushedEventMap = { a: { calendarId: 'primary', eventId: 'g-9', key: contentKey(ev('a')) } };
+    await syncPushedEvents(push([ev('a')], pushed, fakeFetch(), persist));
+    expect(persist).not.toHaveBeenCalled();
+  });
+});
+
+/** Repair pass for copies older pushes left behind in imported calendars. */
+describe('sweepOwnCopies', () => {
+  const payload = (over: Partial<GooglePushEvent> = {}): GooglePushEvent => ({
+    id: 'local-1',
+    title: '3 Nat - LOO',
+    start: '2026-09-21T08:30:00.000Z',
+    end: '2026-09-21T09:15:00.000Z',
+    description: ' · Lokaal z023',
+    ...over,
+  });
+
+  const item = (over: Partial<GoogleApiEvent> = {}): GoogleApiEvent => ({
+    id: 'stray',
+    summary: '3 Nat - LOO',
+    description: '· Lokaal z023',
+    start: { dateTime: '2026-09-21T08:30:00Z' },
+    end: { dateTime: '2026-09-21T09:15:00Z' },
+    ...over,
+  });
+
+  const tagged = (over: Partial<GoogleApiEvent> = {}): GoogleApiEvent =>
+    item({ extendedProperties: { private: { pcApp: 'personal-calendar' } }, ...over });
+
+  /** Mapping evidence: we know this local event has a copy in the target. */
+  const mapped: PushedEventMap = {
+    'local-1': { calendarId: 'websync', eventId: 'g-1', key: 'k' },
+  };
+
+  function sweepFetch(
+    byCalendar: Record<string, GoogleApiEvent[]>,
+    opts: { deleteStatus?: number; listStatus?: number } = {},
+  ) {
+    const calls: { method: string; url: string }[] = [];
+    const fetchImpl = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+      const u = String(url);
+      const method = init?.method ?? 'GET';
+      calls.push({ method, url: u });
+      if (method === 'DELETE') {
+        if (opts.deleteStatus && opts.deleteStatus >= 400) {
+          return { ok: false, status: opts.deleteStatus, json: async () => ({}) };
+        }
+        return { ok: true, status: 204, json: async () => ({}) };
+      }
+      if (opts.listStatus && opts.listStatus >= 400) {
+        return { ok: false, status: opts.listStatus, json: async () => ({}) };
+      }
+      const calId = decodeURIComponent(/\/calendars\/([^/?]+)\/events/.exec(u)?.[1] ?? '');
+      return { ok: true, status: 200, json: async () => ({ items: byCalendar[calId] ?? [] }) };
+    }) as unknown as typeof fetch;
+    return { fetchImpl, calls };
+  }
+
+  const sweep = (
+    fetchImpl: typeof fetch,
+    over: Partial<Parameters<typeof sweepOwnCopies>[0]> = {},
+  ) => sweepOwnCopies({
+    accessToken: 'tok',
+    pushCalendarId: 'websync',
+    calendarIds: ['websync', 'primary'],
+    events: [payload()],
+    pushed: mapped,
+    fetchImpl,
+    ...over,
+  });
+
+  it('deletes tagged copies from imported calendars but never touches the target', async () => {
+    const { fetchImpl, calls } = sweepFetch({ primary: [tagged()], websync: [tagged()] });
+    expect(await sweep(fetchImpl)).toEqual({ deleted: 1, errors: [] });
+    const lists = calls.filter((c) => c.method === 'GET');
+    expect(lists).toHaveLength(1);
+    expect(lists[0].url).toContain('/calendars/primary/events');
+    expect(
+      calls.some((c) => c.method === 'DELETE' && c.url.includes('/calendars/primary/events/stray')),
+    ).toBe(true);
+  });
+
+  it('deletes an untagged copy whose content matches a mapped local event', async () => {
+    // The Google description is trimmed, the local one keeps its leading space.
+    const { fetchImpl } = sweepFetch({ primary: [item()] });
+    expect(await sweep(fetchImpl)).toEqual({ deleted: 1, errors: [] });
+  });
+
+  it('keeps copies it cannot prove are ours', async () => {
+    const noEvidence = sweepFetch({ primary: [item()] });
+    expect(await sweep(noEvidence.fetchImpl, { pushed: {} })).toEqual({ deleted: 0, errors: [] });
+
+    const otherDescription = sweepFetch({ primary: [item({ description: 'Iets anders' })] });
+    expect(await sweep(otherDescription.fetchImpl)).toEqual({ deleted: 0, errors: [] });
+
+    const otherTitle = sweepFetch({ primary: [item({ summary: 'Ander vak' })] });
+    expect(await sweep(otherTitle.fetchImpl)).toEqual({ deleted: 0, errors: [] });
+
+    expect(noEvidence.calls.every((c) => c.method === 'GET')).toBe(true);
+  });
+
+  it('leaves foreign events in imported calendars alone', async () => {
+    const foreign = item({
+      id: 'tandarts',
+      summary: 'Tandarts',
+      description: undefined,
+      start: { dateTime: '2026-09-22T13:00:00Z' },
+      end: { dateTime: '2026-09-22T13:30:00Z' },
+    });
+    const { fetchImpl, calls } = sweepFetch({ primary: [foreign] });
+    expect(await sweep(fetchImpl)).toEqual({ deleted: 0, errors: [] });
+    expect(calls.every((c) => c.method === 'GET')).toBe(true);
+  });
+
+  it('collects failures instead of throwing', async () => {
+    const failingDelete = sweepFetch({ primary: [tagged()] }, { deleteStatus: 403 });
+    const r = await sweep(failingDelete.fetchImpl);
+    expect(r.deleted).toBe(0);
+    expect(r.errors).toHaveLength(1);
+    expect(r.errors[0].id).toBe('primary:stray');
+    expect(r.errors[0].error).toContain('403');
+
+    const failingList = sweepFetch({}, { listStatus: 500 });
+    const listResult = await sweep(failingList.fetchImpl);
+    expect(listResult.deleted).toBe(0);
+    expect(listResult.errors.map((e) => e.id)).toEqual(['primary']);
+  });
+
+  it('does nothing without a payload or without another calendar', async () => {
+    const noPayload = sweepFetch({ primary: [tagged()] });
+    expect(await sweep(noPayload.fetchImpl, { events: [] })).toEqual({ deleted: 0, errors: [] });
+
+    const targetOnly = sweepFetch({ primary: [tagged()] });
+    expect(await sweep(targetOnly.fetchImpl, { calendarIds: ['websync'] }))
+      .toEqual({ deleted: 0, errors: [] });
+
+    expect(noPayload.calls).toHaveLength(0);
+    expect(targetOnly.calls).toHaveLength(0);
   });
 });

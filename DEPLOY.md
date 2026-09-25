@@ -334,6 +334,29 @@ How it behaves:
 - **The pushed list is authoritative.** A mapped event missing from the
   payload is deleted, so the push only runs after a complete event set is
   available (mount + debounced sync/edits).
+- **Progress is persisted per batch.** The mapping is flushed to
+  `google-auth.json` after every batch that changed something, so a run that
+  dies halfway (token expiry → the 401 retry, a restart, a dropped
+  connection) keeps the copies it already made: the retry skips them instead
+  of creating a second, untracked copy.
+- **Copies are stamped.** Every event the app creates carries
+  `extendedProperties.private` (`pcApp: personal-calendar` + the local
+  `pcLocalId`), so `GET /api/google/events` recognises and skips our own
+  copies even when the mapping no longer knows them. That is what keeps a
+  stray copy from being imported back as a duplicate of the event it mirrors.
+  (Events created by the legacy single-event route get the stamp too.)
+- **Stray copies are swept.** Copies left behind by an earlier push — the
+  fallback target used before one was chosen, a target switch whose delete
+  failed, a run that died — are removed from the *other imported* calendars
+  once per push target (and again after any failed push). Only copies that are
+  provably ours are touched: tagged ones, or ones whose content matches a
+  local event the mapping also has a copy of. The target calendar itself is
+  never touched, and the push response reports the count as `swept`.
+- **The app also ignores mirrors.** As a second line of defence the frontend
+  drops a Google import whose title and start/end exactly match a manual or
+  Magister event (`src/integrations/duplicates.ts`), so a leftover copy can
+  never show up twice in the calendar — Google-vs-Google matches are left
+  alone.
 - **Limits:** max 2000 events per request (512 KB body), 3 concurrent
   Calendar API calls, one retry with backoff on 429, and a token refresh +
   single retry on 401. Concurrent pushes answer `429 {ok:false}` — the
@@ -343,11 +366,32 @@ How it behaves:
 Because events are pushed by the server, the write scope `calendar.events`
 must stay in `GOOGLE_SCOPES` (§9.1). Accounts connected before the scope
 was added need one re-consent (Settings → Disconnect → Connect). No extra
-env vars, Nginx rules or storage migrations are required: the mapping lives
-in the existing `google-auth.json`, and `GET /api/google/events` filters
-out events that this app pushed so imports never re-import them.
+env vars, Nginx rules or storage migrations are required: the mapping,
+`pushCalendarId` and the sweep bookkeeping (`sweepTarget`/`sweepAt`) live in
+the existing `google-auth.json`, and `GET /api/google/events` filters out
+events that this app pushed so imports never re-import them.
 
 ```bash
 # after at least one push, the status route reports the target + result:
 curl -s https://calendar.f1nn.me/api/google/status   # pushCalendarId, lastPushAt, lastPushError
 ```
+
+### 9.6 Why duplicates appeared (and how they self-heal)
+
+The first push after a deploy may run before Settings saved a target, so it
+falls back to the account's primary calendar. A run that failed after
+creating part of the set used to lose those copies (the mapping was only
+written at the end), and the retry created them again — the first batch then
+lived on in the primary calendar unknown to the mapping, came back through
+the import as `google:` events and showed every lesson twice.
+
+Three independent guards now prevent that, so no manual cleanup is needed:
+
+1. progress is flushed per batch → no re-creation after a failed run,
+2. tagged copies are never imported, mapping or not,
+3. the sweep deletes provably-ours strays from imported calendars, and the
+   frontend drops any remaining mirror of a local/Magister event.
+
+On the first push after the upgrade the sweep cleans up the old strays; the
+count shows up as `swept` in the push response (and the calendar is tidy
+again after the next sync).

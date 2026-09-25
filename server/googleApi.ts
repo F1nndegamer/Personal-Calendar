@@ -12,6 +12,7 @@ import type {
   GoogleApiEvent,
   GoogleCalendarRef,
 } from './googleTypes.js';
+import { isOwnCopyTag } from './googleTypes.js';
 
 /** Server-side external event shape (mirrors the frontend's ExternalScheduleEvent). */
 export interface GoogleExternalEvent {
@@ -25,6 +26,11 @@ export interface GoogleExternalEvent {
   description?: string;
   /** `updated` timestamp from Google, if present */
   updated?: string;
+  /**
+   * True when the event carries this app's push tag — i.e. it is a copy of a
+   * local event we created ourselves. Such copies must never be imported.
+   */
+  ownCopy?: boolean;
 }
 
 function pickInstant(
@@ -68,6 +74,7 @@ export function mapGoogleEventToExternal(
     start,
     end,
   };
+  if (isOwnCopyTag(event.extendedProperties?.private)) out.ownCopy = true;
   if (typeof event.description === 'string' && event.description.trim().length > 0) {
     out.description = event.description.trim().slice(0, 2000);
   }

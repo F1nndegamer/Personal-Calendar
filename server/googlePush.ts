@@ -21,14 +21,17 @@
  *   - Work runs in small batches so first-time pushes (hundreds of creates)
  *     stay comfortably under proxy timeouts.
  */
-import type { GooglePushEvent, GooglePushResponse } from './googleTypes.js';
+import type { GoogleApiEvent, GooglePushEvent, GooglePushResponse } from './googleTypes.js';
 import {
   createGoogleEvent,
   deleteGoogleEvent,
+  eventInstant,
+  listAllEvents,
   toGoogleEventBody,
   updateGoogleEvent,
   type FetchImpl,
 } from './googleOAuth.js';
+import { mapGoogleEventToExternal } from './googleApi.js';
 import type { PushedEventMap } from './googleStore.js';
 
 /** Hard cap for one push request (also bounded by the route's body limit). */
@@ -108,6 +111,13 @@ export interface SyncPushInput {
   fetchImpl: FetchImpl;
   /** Injectable for tests; defaults to setTimeout. */
   sleep?: (ms: number) => Promise<void>;
+  /**
+   * Called with the (in-progress) mapping after every batch that changed
+   * something. A run that dies halfway — token expiry, dropped connection,
+   * deploy restart — then keeps the copies it already made, so the retry
+   * skips them instead of creating untracked duplicates on Google.
+   */
+  persist?: (pushed: PushedEventMap) => void;
 }
 
 export interface PushStats {
@@ -172,8 +182,17 @@ export async function syncPushedEvents(input: SyncPushInput): Promise<SyncPushRe
   const stats: PushStats = { created: 0, updated: 0, deleted: 0, skipped: 0, errors: [] };
   const incoming = new Set(input.events.map((e) => e.id));
 
+  // Flush the mapping after every batch that actually changed something, so a
+  // run that dies halfway never loses the copies it already created (a retry
+  // would create them a second time — the origin of duplicated imports).
+  const opsDone = () => stats.created + stats.updated + stats.deleted;
+  const flushFrom = (before: number) => {
+    if (stats.created + stats.updated + stats.deleted !== before) input.persist?.(next);
+  };
+
   // ---- creates / updates / moves, in small batches --------------------
   for (let i = 0; i < input.events.length; i += BATCH_SIZE) {
+    const before = opsDone();
     const batch = input.events.slice(i, i + BATCH_SIZE);
     const outcomes = await Promise.allSettled(
       batch.map(async (ev) => {
@@ -235,6 +254,10 @@ export async function syncPushedEvents(input: SyncPushInput): Promise<SyncPushRe
         if (created) stats.created++;
       }),
     );
+    // Successful ops of this batch are durable before we rethrow (401 → the
+    // route refreshes the token and retries the run; the retry then skips
+    // everything already created instead of duplicating it).
+    flushFrom(before);
     // Fail fast when the token expired mid-run (the route refreshes + retries).
     for (const o of outcomes) {
       if (o.status === 'rejected') throw o.reason;
@@ -244,6 +267,7 @@ export async function syncPushedEvents(input: SyncPushInput): Promise<SyncPushRe
   // ---- deletions: mapped events no longer in the desired state --------
   const toDelete = Object.entries(input.pushed).filter(([id]) => !incoming.has(id));
   for (let i = 0; i < toDelete.length; i += BATCH_SIZE) {
+    const before = opsDone();
     const batch = toDelete.slice(i, i + BATCH_SIZE);
     const outcomes = await Promise.allSettled(
       batch.map(async ([id, entry]) => {
@@ -257,12 +281,119 @@ export async function syncPushedEvents(input: SyncPushInput): Promise<SyncPushRe
         }
       }),
     );
+    flushFrom(before);
     for (const o of outcomes) {
       if (o.status === 'rejected') throw o.reason;
     }
   }
 
   return { pushed: next, stats };
+}
+
+/** Identity of an event's content, ignoring formatting/case differences. */
+function contentSignature(
+  title: string,
+  start: string,
+  end: string,
+  description?: string,
+): string {
+  return [
+    title.trim().toLowerCase(),
+    eventInstant(start),
+    eventInstant(end),
+    (description ?? '').trim(),
+  ].join('\u0000');
+}
+
+export interface SweepOwnCopiesInput {
+  accessToken: string;
+  /** Calendar pushes land in — never touched by the sweep. */
+  pushCalendarId: string;
+  /** Imported calendars to clean (the push target is skipped internally). */
+  calendarIds: readonly string[];
+  /** Complete local event set (the same payload that was pushed). */
+  events: readonly GooglePushEvent[];
+  /** Current mapping — evidence that a matching copy is ours. */
+  pushed: PushedEventMap;
+  fetchImpl?: FetchImpl;
+}
+
+export interface SweepOwnCopiesResult {
+  deleted: number;
+  errors: { id: string; error: string }[];
+}
+
+/**
+ * Remove copies of local events that earlier pushes left behind in *other*
+ * (imported) calendars: the fallback target used before one was chosen, a
+ * target switch whose delete failed, or a run that died after creating events.
+ * Such strays used to be imported again as duplicates of the event they mirror.
+ *
+ * Only copies that are provably ours are deleted:
+ *   - events carrying this app's private push tag (`pushTag`), or
+ *   - events whose content equals a local event AND whose local id is in the
+ *     mapping (so a payload alone can never delete a foreign event).
+ * The push target itself is never touched, and failures are collected rather
+ * than thrown — the sweep is a repair, not part of the push contract.
+ */
+export async function sweepOwnCopies(
+  input: SweepOwnCopiesInput,
+): Promise<SweepOwnCopiesResult> {
+  const result: SweepOwnCopiesResult = { deleted: 0, errors: [] };
+  const calendars = input.calendarIds.filter((id) => id !== input.pushCalendarId);
+  if (input.events.length === 0 || calendars.length === 0) return result;
+
+  const bySignature = new Map<string, GooglePushEvent>();
+  let minStart = Number.POSITIVE_INFINITY;
+  let maxEnd = Number.NEGATIVE_INFINITY;
+  for (const ev of input.events) {
+    bySignature.set(contentSignature(ev.title, ev.start, ev.end, ev.description), ev);
+    minStart = Math.min(minStart, new Date(ev.start).getTime());
+    maxEnd = Math.max(maxEnd, new Date(ev.end).getTime());
+  }
+  if (!Number.isFinite(minStart) || !Number.isFinite(maxEnd)) return result;
+  const timeMin = new Date(minStart).toISOString();
+  const timeMax = new Date(maxEnd).toISOString();
+
+  for (const calendarId of calendars) {
+    let raw: GoogleApiEvent[];
+    try {
+      raw = await listAllEvents(input.accessToken, calendarId, timeMin, timeMax, input.fetchImpl);
+    } catch (err) {
+      result.errors.push({ id: calendarId, error: errorMessage(err) });
+      continue;
+    }
+    const strays: string[] = [];
+    for (const event of raw) {
+      const eventId = event.id;
+      if (!eventId) continue;
+      const mapped = mapGoogleEventToExternal(event, calendarId);
+      if (!mapped) continue;
+      if (mapped.ownCopy) {
+        strays.push(eventId);
+        continue;
+      }
+      const mirror = bySignature.get(
+        contentSignature(mapped.subject, mapped.start, mapped.end, mapped.description),
+      );
+      if (mirror && Object.prototype.hasOwnProperty.call(input.pushed, mirror.id)) {
+        strays.push(eventId);
+      }
+    }
+    for (let i = 0; i < strays.length; i += BATCH_SIZE) {
+      await Promise.all(
+        strays.slice(i, i + BATCH_SIZE).map(async (eventId) => {
+          try {
+            await deleteGoogleEvent(input.accessToken, calendarId, eventId, input.fetchImpl);
+            result.deleted += 1;
+          } catch (err) {
+            result.errors.push({ id: `${calendarId}:${eventId}`, error: errorMessage(err) });
+          }
+        }),
+      );
+    }
+  }
+  return result;
 }
 
 /** Human-readable summary for `lastPushError` (undefined when all worked). */
@@ -275,13 +406,14 @@ export function pushErrorSummary(stats: PushStats): string | undefined {
 }
 
 /** Build the HTTP response body for a push run. */
-export function pushResponse(stats: PushStats): GooglePushResponse {
+export function pushResponse(stats: PushStats, swept = 0): GooglePushResponse {
   return {
     ok: stats.errors.length === 0,
     created: stats.created,
     updated: stats.updated,
     deleted: stats.deleted,
     skipped: stats.skipped,
+    ...(swept > 0 ? { swept } : {}),
     errors: stats.errors,
   };
 }

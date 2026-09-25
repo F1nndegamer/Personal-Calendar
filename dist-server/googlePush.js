@@ -1,4 +1,5 @@
-import { createGoogleEvent, deleteGoogleEvent, toGoogleEventBody, updateGoogleEvent, } from './googleOAuth.js';
+import { createGoogleEvent, deleteGoogleEvent, eventInstant, listAllEvents, toGoogleEventBody, updateGoogleEvent, } from './googleOAuth.js';
+import { mapGoogleEventToExternal } from './googleApi.js';
 /** Hard cap for one push request (also bounded by the route's body limit). */
 export const MAX_PUSH_EVENTS = 2000;
 /** Parallelism for push operations (creates/updates/deletes). */
@@ -97,8 +98,17 @@ export async function syncPushedEvents(input) {
     const next = { ...input.pushed };
     const stats = { created: 0, updated: 0, deleted: 0, skipped: 0, errors: [] };
     const incoming = new Set(input.events.map((e) => e.id));
+    // Flush the mapping after every batch that actually changed something, so a
+    // run that dies halfway never loses the copies it already created (a retry
+    // would create them a second time — the origin of duplicated imports).
+    const opsDone = () => stats.created + stats.updated + stats.deleted;
+    const flushFrom = (before) => {
+        if (stats.created + stats.updated + stats.deleted !== before)
+            input.persist?.(next);
+    };
     // ---- creates / updates / moves, in small batches --------------------
     for (let i = 0; i < input.events.length; i += BATCH_SIZE) {
+        const before = opsDone();
         const batch = input.events.slice(i, i + BATCH_SIZE);
         const outcomes = await Promise.allSettled(batch.map(async (ev) => {
             const key = contentKey(ev);
@@ -145,6 +155,10 @@ export async function syncPushedEvents(input) {
             if (created)
                 stats.created++;
         }));
+        // Successful ops of this batch are durable before we rethrow (401 → the
+        // route refreshes the token and retries the run; the retry then skips
+        // everything already created instead of duplicating it).
+        flushFrom(before);
         // Fail fast when the token expired mid-run (the route refreshes + retries).
         for (const o of outcomes) {
             if (o.status === 'rejected')
@@ -154,6 +168,7 @@ export async function syncPushedEvents(input) {
     // ---- deletions: mapped events no longer in the desired state --------
     const toDelete = Object.entries(input.pushed).filter(([id]) => !incoming.has(id));
     for (let i = 0; i < toDelete.length; i += BATCH_SIZE) {
+        const before = opsDone();
         const batch = toDelete.slice(i, i + BATCH_SIZE);
         const outcomes = await Promise.allSettled(batch.map(async ([id, entry]) => {
             const deleted = await runOp(() => deleteGoogleEvent(input.accessToken, entry.calendarId, entry.eventId, input.fetchImpl), id, stats, sleep);
@@ -162,12 +177,92 @@ export async function syncPushedEvents(input) {
                 stats.deleted++;
             }
         }));
+        flushFrom(before);
         for (const o of outcomes) {
             if (o.status === 'rejected')
                 throw o.reason;
         }
     }
     return { pushed: next, stats };
+}
+/** Identity of an event's content, ignoring formatting/case differences. */
+function contentSignature(title, start, end, description) {
+    return [
+        title.trim().toLowerCase(),
+        eventInstant(start),
+        eventInstant(end),
+        (description ?? '').trim(),
+    ].join('\u0000');
+}
+/**
+ * Remove copies of local events that earlier pushes left behind in *other*
+ * (imported) calendars: the fallback target used before one was chosen, a
+ * target switch whose delete failed, or a run that died after creating events.
+ * Such strays used to be imported again as duplicates of the event they mirror.
+ *
+ * Only copies that are provably ours are deleted:
+ *   - events carrying this app's private push tag (`pushTag`), or
+ *   - events whose content equals a local event AND whose local id is in the
+ *     mapping (so a payload alone can never delete a foreign event).
+ * The push target itself is never touched, and failures are collected rather
+ * than thrown — the sweep is a repair, not part of the push contract.
+ */
+export async function sweepOwnCopies(input) {
+    const result = { deleted: 0, errors: [] };
+    const calendars = input.calendarIds.filter((id) => id !== input.pushCalendarId);
+    if (input.events.length === 0 || calendars.length === 0)
+        return result;
+    const bySignature = new Map();
+    let minStart = Number.POSITIVE_INFINITY;
+    let maxEnd = Number.NEGATIVE_INFINITY;
+    for (const ev of input.events) {
+        bySignature.set(contentSignature(ev.title, ev.start, ev.end, ev.description), ev);
+        minStart = Math.min(minStart, new Date(ev.start).getTime());
+        maxEnd = Math.max(maxEnd, new Date(ev.end).getTime());
+    }
+    if (!Number.isFinite(minStart) || !Number.isFinite(maxEnd))
+        return result;
+    const timeMin = new Date(minStart).toISOString();
+    const timeMax = new Date(maxEnd).toISOString();
+    for (const calendarId of calendars) {
+        let raw;
+        try {
+            raw = await listAllEvents(input.accessToken, calendarId, timeMin, timeMax, input.fetchImpl);
+        }
+        catch (err) {
+            result.errors.push({ id: calendarId, error: errorMessage(err) });
+            continue;
+        }
+        const strays = [];
+        for (const event of raw) {
+            const eventId = event.id;
+            if (!eventId)
+                continue;
+            const mapped = mapGoogleEventToExternal(event, calendarId);
+            if (!mapped)
+                continue;
+            if (mapped.ownCopy) {
+                strays.push(eventId);
+                continue;
+            }
+            const mirror = bySignature.get(contentSignature(mapped.subject, mapped.start, mapped.end, mapped.description));
+            if (mirror && Object.prototype.hasOwnProperty.call(input.pushed, mirror.id)) {
+                strays.push(eventId);
+            }
+        }
+        for (let i = 0; i < strays.length; i += BATCH_SIZE) {
+            await Promise.all(strays.slice(i, i + BATCH_SIZE).map(async (eventId) => {
+                try {
+                    await deleteGoogleEvent(input.accessToken, calendarId, eventId, input.fetchImpl);
+                    result.deleted += 1;
+                }
+                catch (err) {
+                    result.errors.push({ id: `${calendarId}:${eventId}`, error: errorMessage(err) });
+                }
+            }));
+        }
+    }
+    return result;
 }
 /** Human-readable summary for `lastPushError` (undefined when all worked). */
 export function pushErrorSummary(stats) {
@@ -179,13 +274,14 @@ export function pushErrorSummary(stats) {
         : `Push failed for ${stats.errors.length} events: ${first}`;
 }
 /** Build the HTTP response body for a push run. */
-export function pushResponse(stats) {
+export function pushResponse(stats, swept = 0) {
     return {
         ok: stats.errors.length === 0,
         created: stats.created,
         updated: stats.updated,
         deleted: stats.deleted,
         skipped: stats.skipped,
+        ...(swept > 0 ? { swept } : {}),
         errors: stats.errors,
     };
 }

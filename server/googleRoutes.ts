@@ -41,6 +41,7 @@ import {
   parsePushBody,
   pushErrorSummary,
   pushResponse,
+  sweepOwnCopies,
   syncPushedEvents,
   type SyncPushResult,
 } from './googlePush.js';
@@ -300,8 +301,11 @@ export async function handleGoogleRequest(
             const m = mapGoogleEventToExternal({
               id: ev.id ?? '', summary: ev.summary, description: ev.description,
               start: ev.start, end: ev.end, status: ev.status, updated: ev.updated,
+              extendedProperties: ev.extendedProperties,
             }, calId);
-            if (m && !pushedExternal.has(m.externalId)) out.push(m);
+            // Skip our own copies (tagged with `pushTag`) and everything the
+            // mapping says we already pushed — both exist locally already.
+            if (m && !m.ownCopy && !pushedExternal.has(m.externalId)) out.push(m);
           }
         }
         writeAuth({ ...readAuth(), lastSyncAt: Date.now(), lastError: undefined });
@@ -413,6 +417,10 @@ export async function handleGoogleRequest(
           result = await syncPushedEvents({
             accessToken, calendarId: targetId, events: body.events,
             pushed: existingPushed, fetchImpl,
+            // Persist progress batch by batch: a run that dies halfway (the
+            // 401 retry below, a dropped connection, a restart) must not lose
+            // the copies it already created — a retry would duplicate them.
+            persist: (pushed) => writeAuth({ ...readAuth(), pushed }),
           });
           break;
         } catch (err) {
@@ -439,14 +447,37 @@ export async function handleGoogleRequest(
       }
       if (!result) { json(res, 502, { ok: false, error: 'Google push failed' }); return true; }
 
+      const stats = result.stats;
+      // Repair pass: copies of local events that an earlier — possibly failed —
+      // push left behind in other imported calendars would come back as
+      // duplicate imports, so they are removed once per push target (and again
+      // after any failed push). Only provably-ours copies are touched; see
+      // `sweepOwnCopies`.
+      const shouldSweep = auth.sweepTarget !== targetId || auth.lastPushError != null;
+      const sweepCalendars = shouldSweep
+        ? (auth.selectedCalendarIds ?? []).filter(
+            (id) => id !== targetId &&
+              isWritableRole(entries.find((e) => e.id === id)?.accessRole),
+          )
+        : [];
+      const sweep = sweepCalendars.length > 0
+        ? await sweepOwnCopies({
+            accessToken, pushCalendarId: targetId, calendarIds: sweepCalendars,
+            events: body.events, pushed: result.pushed, fetchImpl,
+          })
+        : undefined;
+      // A sweep that failed is retried on the next push (no target recorded).
+      const sweepDone = sweep !== undefined && sweep.errors.length === 0;
+
       writeAuth({
         ...readAuth(),
         pushed: result.pushed,
         pushCalendarId: targetId,
         lastPushAt: now(),
-        lastPushError: pushErrorSummary(result.stats),
+        lastPushError: pushErrorSummary(stats),
+        ...(sweepDone ? { sweepTarget: targetId, sweepAt: now() } : {}),
       });
-      json(res, 200, pushResponse(result.stats));
+      json(res, 200, pushResponse(stats, sweep?.deleted ?? 0));
       return true;
     } finally {
       pushInFlight = false;

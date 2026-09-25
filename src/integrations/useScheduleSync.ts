@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CalendarEvent } from '../calendar/types';
 import { syncExternalEvents } from './sync';
+import { GOOGLE_PROVIDER_ID, withoutDuplicateMirrors } from './duplicates';
 import {
   getScheduleProvidersInfo,
   refreshGoogleAvailability,
@@ -127,13 +128,22 @@ export function useScheduleSync(options: UseScheduleSyncOptions): ScheduleSync {
       // events carrying its own `<providerId>:` prefix, so a provider that
       // failed this round keeps everything it synced before.
       let merged = opts.getEvents();
+      // Every provider's payload is already in hand, so Google imports that
+      // merely mirror a local/Magister event (a copy of our own pushed data)
+      // can be dropped instead of being imported as a duplicate.
+      const nonGoogleEvents = succeeded
+        .filter((r) => r.providerId !== GOOGLE_PROVIDER_ID)
+        .flatMap((r) => r.events);
       let fetchedAt = succeeded[0].fetchedAt;
       for (const r of succeeded) {
         if (new Date(r.fetchedAt).getTime() > new Date(fetchedAt).getTime()) {
           fetchedAt = r.fetchedAt;
         }
         syncedRef.current.add(r.providerId);
-        merged = syncExternalEvents(merged, r.events, r.providerId, r.fetchedAt).events;
+        const incoming = r.providerId === GOOGLE_PROVIDER_ID
+          ? withoutDuplicateMirrors(merged, r.events, nonGoogleEvents)
+          : r.events;
+        merged = syncExternalEvents(merged, incoming, r.providerId, r.fetchedAt).events;
       }
       opts.commitEvents(merged);
       opts.persist(merged);

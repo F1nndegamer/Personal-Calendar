@@ -78,6 +78,8 @@ export function readGoogleAuth() {
             pushed: isPushedMap(parsed.pushed) ? parsed.pushed : undefined,
             lastPushAt: typeof parsed.lastPushAt === 'number' ? parsed.lastPushAt : undefined,
             lastPushError: typeof parsed.lastPushError === 'string' ? parsed.lastPushError : undefined,
+            sweepTarget: typeof parsed.sweepTarget === 'string' ? parsed.sweepTarget : undefined,
+            sweepAt: typeof parsed.sweepAt === 'number' ? parsed.sweepAt : undefined,
         };
     }
     catch {

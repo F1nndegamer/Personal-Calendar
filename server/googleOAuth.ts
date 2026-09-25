@@ -7,6 +7,10 @@
  * to the browser.
  */
 
+import { pushTag } from './googleTypes.js';
+import type { GoogleApiEvent } from './googleTypes.js';
+
+
 export interface GoogleOAuthConfig {
   clientId: string;
   clientSecret: string;
@@ -188,17 +192,7 @@ export async function fetchAccountEmail(
   }
 }
 
-export interface GoogleApiEvent {
-  id?: string;
-  summary?: string;
-  description?: string;
-  location?: string;
-  status?: string;
-  recurringEventId?: string;
-  start?: { dateTime?: string; date?: string };
-  end?: { dateTime?: string; date?: string };
-  updated?: string;
-}
+/** Raw event shape returned by `events.list` (single definition in `googleTypes`). */
 
 /** One page of `events.list`. */
 export async function listEventsPage(
@@ -256,13 +250,22 @@ export function isAuthError(err: unknown): boolean {
 }
 
 export interface LocalEventInput {
+  /**
+   * Local event id. When given, the created Google event is stamped with this
+   * app's private push tag so it can never be mistaken for a foreign event.
+   */
+  id?: string;
   title: string;
   description?: string;
   start: string;
   end: string;
 }
 
-function eventInstant(iso: string): string {
+/**
+ * Normalize an ISO date-time for comparisons; falls back to the raw string.
+ * (Shared with the push engine so signatures survive `Z` vs `.000Z`.)
+ */
+export function eventInstant(iso: string): string {
   const t = new Date(iso).getTime();
   return Number.isNaN(t) ? iso : new Date(t).toISOString();
 }
@@ -275,6 +278,7 @@ export function toGoogleEventBody(input: LocalEventInput): Record<string, unknow
     end: { dateTime: eventInstant(input.end) },
   };
   if (input.description) body.description = input.description;
+  if (input.id) body.extendedProperties = { private: pushTag(input.id) };
   return body;
 }
 
