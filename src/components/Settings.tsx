@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { X } from 'lucide-react';
 import { APP_VERSION } from '../version';
+import { useDialogA11y } from '../hooks/useDialogA11y';
 
 interface Props {
   feedUrl: string;
@@ -43,19 +44,16 @@ export function Settings({
   const [value, setValue] = useState(feedUrl);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const dialogRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  // Focus trap + `Escape` + focus restore. Initial focus stays with the
+  // first-input effect below (plus text select for fast URL replacement).
+  const panelRef = useDialogA11y<HTMLDivElement>(onClose);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
-
-  useEffect(() => {
-    const input = dialogRef.current?.querySelector<HTMLInputElement>('input');
+    const input = panelRef.current?.querySelector<HTMLInputElement>('input');
     input?.focus();
     input?.select();
-  }, []);
+  }, [panelRef]);
 
   const handleSave = () => {
     setSaving(true);
@@ -67,9 +65,16 @@ export function Settings({
 
   return (
     <div className="dialog-backdrop" onPointerDown={onClose}>
-      <div className="dialog" ref={dialogRef} onPointerDown={(e) => e.stopPropagation()}>
+      <div
+        className="dialog"
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        onPointerDown={(e) => e.stopPropagation()}
+      >
         <div className="dialog-header">
-          <h2>Settings</h2>
+          <h2 id={titleId}>Settings</h2>
           <button className="icon-btn" onClick={onClose} aria-label="Close">
             <X size={15} />
           </button>

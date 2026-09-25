@@ -19,13 +19,24 @@ function EventBlockImpl({ event, top, height, left, width, dragging, isLocked, o
   const start = new Date(event.start);
   const end = new Date(event.end);
   const compact = height < 36;
+  const label = event.title === '' ? '(No title)' : event.title;
 
   return (
     <div
       className={`event-block color-${event.color}${dragging ? ' dragging' : ''}${isLocked ? ' locked' : ''}`}
       style={{ top, height, left: `${left}%`, width: `${width}%` }}
+      role="button"
+      tabIndex={0}
+      aria-label={`${label}, ${formatTimeFull(start)} – ${formatTimeFull(end)}${isLocked ? ' (locked)' : ''}`}
       onPointerDown={isLocked ? undefined : (e) => onPointerDown('move', e)}
       onClick={onClick}
+      onKeyDown={(e) => {
+        // Keyboard parity with mouse/touch: Enter or Space opens the event.
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onClick();
+        }
+      }}
     >
       <div className="event-title">{event.title}</div>
       {compact ? (

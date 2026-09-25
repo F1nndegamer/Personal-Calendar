@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { formatTimeFull } from '../calendar/lib';
 import { parseQuickAdd } from './parser';
 import type { ParsedQuickAdd } from './types';
+import { useDialogA11y } from '../hooks/useDialogA11y';
 
 interface Props {
   open: boolean;
@@ -23,6 +24,10 @@ interface Props {
 export function QuickAdd({ open, onClose, onAddTask }: Props) {
   const [input, setInput] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
+  const titleId = useId();
+  // Focus trap + focus restore. `Escape` stays with the dedicated listener
+  // below (this dialog mounts while `open` flips, so Escape runs alongside).
+  const panelRef = useDialogA11y<HTMLDivElement>(onClose);
 
   useEffect(() => {
     if (open) {
@@ -36,11 +41,12 @@ export function QuickAdd({ open, onClose, onAddTask }: Props) {
     }
   }, [open]);
 
-  // Close on Escape (global listener, like TaskDialog does)
+  // Close on `Escape` (also handled by the dialog `Escape` in `useDialogA11y`;
+  // both call the same `onClose`, which is idempotent).
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') { e.preventDefault(); onClose(); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -70,10 +76,14 @@ export function QuickAdd({ open, onClose, onAddTask }: Props) {
     <div className="dialog-backdrop" onPointerDown={onClose}>
       <div
         className="dialog quickadd-dialog"
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
         onPointerDown={(e) => e.stopPropagation()}
       >
         <div className="dialog-header">
-          <h2>Quick add</h2>
+          <h2 id={titleId}>Quick add</h2>
           <button className="icon-btn" onClick={onClose} aria-label="Close">
             ✕
           </button>

@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useId, useState } from 'react';
 import { formatTimeFull, startOfDay } from './lib';
 import type { CalendarEvent, EventColor } from './types';
+import { useDialogA11y } from '../hooks/useDialogA11y';
 
 const COLORS: EventColor[] = ['blue', 'green', 'amber', 'red', 'purple', 'cyan'];
 
@@ -21,14 +22,8 @@ function toInputValue(d: Date): string {
 
 export function EventDialog({ event, isNew, readOnly, onSave, onDelete, onClose }: Props) {
   const [draft, setDraft] = useState(event);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  const titleId = useId();
+  const panelRef = useDialogA11y<HTMLDivElement>(onClose);
 
   const set = (patch: Partial<CalendarEvent>) => setDraft((d) => ({ ...d, ...patch }));
 
@@ -45,9 +40,16 @@ export function EventDialog({ event, isNew, readOnly, onSave, onDelete, onClose 
 
   return (
     <div className="dialog-backdrop" onPointerDown={onClose}>
-      <div className="dialog" onPointerDown={(e) => e.stopPropagation()}>
+      <div
+        className="dialog"
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        onPointerDown={(e) => e.stopPropagation()}
+      >
         <div className="dialog-header">
-          <h2>{isNew ? 'New event' : 'Event details'}</h2>
+          <h2 id={titleId}>{isNew ? 'New event' : 'Event details'}</h2>
           <button className="icon-btn" onClick={onClose} aria-label="Close">✕</button>
         </div>
 

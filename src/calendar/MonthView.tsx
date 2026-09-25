@@ -96,6 +96,7 @@ export function MonthView({
                   type="button"
                   className={`month-chip color-${ev.color}`}
                   title={ev.title}
+                  aria-label={ev.title}
                   // The chip owns this press: no day-tap underneath, and a
                   // horizontal flick that starts here still pages the month.
                   onPointerDown={(e) => e.stopPropagation()}

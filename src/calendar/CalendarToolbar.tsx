@@ -90,7 +90,7 @@ export function CalendarToolbar({
           className="toolbar-btn today-btn"
           onClick={onToday}
           disabled={inRange}
-          title="Jump to today"
+          title={inRange ? 'Already on today' : 'Jump to today'}
         >
           Today
         </button>

@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useId, useState } from 'react';
 import { Plus, X } from 'lucide-react';
 import type { EventColor } from '../calendar/types';
 import type { Priority, Subtask, Task } from './types';
+import { useDialogA11y } from '../hooks/useDialogA11y';
 
 const COLORS: EventColor[] = ['blue', 'green', 'amber', 'red', 'purple', 'cyan'];
 const PRIORITIES: Priority[] = ['low', 'medium', 'high'];
@@ -23,14 +24,8 @@ interface Props {
 
 export function TaskDialog({ task, isNew, onSave, onDelete, onClose }: Props) {
   const [draft, setDraft] = useState(task);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  const titleId = useId();
+  const panelRef = useDialogA11y<HTMLDivElement>(onClose);
 
   const set = (patch: Partial<Task>) => setDraft((d) => ({ ...d, ...patch }));
 
@@ -49,9 +44,16 @@ export function TaskDialog({ task, isNew, onSave, onDelete, onClose }: Props) {
 
   return (
     <div className="dialog-backdrop" onPointerDown={onClose}>
-      <div className="dialog" onPointerDown={(e) => e.stopPropagation()}>
+      <div
+        className="dialog"
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        onPointerDown={(e) => e.stopPropagation()}
+      >
         <div className="dialog-header">
-          <h2>{isNew ? 'New task' : 'Task details'}</h2>
+          <h2 id={titleId}>{isNew ? 'New task' : 'Task details'}</h2>
           <button className="icon-btn" onClick={onClose} aria-label="Close"><X size={15} /></button>
         </div>
 
