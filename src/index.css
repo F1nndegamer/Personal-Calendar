@@ -1335,7 +1335,37 @@ input[type='time'] {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  margin-top: 8px;
+  margin: 0 10px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+/*
+ * Collapsed show/hide toggles for the Pomodoro and scratchpad sections.
+ * Full-row buttons that mirror the task-panel list gutters so they read as
+ * part of the panel (not floating text), with a muted chevron marking them
+ * as expandable.
+ */
+.btn.subtle.section-toggle {
+  align-self: stretch;
+  justify-content: flex-start;
+  width: calc(100% - 20px);
+  margin: 0 10px;
+  padding: 7px 10px;
+  font-size: 12.5px;
+}
+
+.btn.subtle.section-toggle .section-toggle-chevron {
+  margin-left: auto;
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+
+.pomodoro-section .btn.subtle.section-toggle {
+  margin: 0;
+  padding: 2px 4px;
 }
 
 /* ---------- Overdue grouping ---------- */

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Check, Plus, Search, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronUp, Plus, Search, Timer, X } from 'lucide-react';
 import { formatCountdown, formatDue, isOverdue, matchesQuery, sortTasks } from './lib';
 import type { Task } from './types';
 import { Pomodoro } from '../pomodoro/Pomodoro';
@@ -158,42 +158,52 @@ export function TaskPanel({ tasks, onToggle, onTaskClick, onNewTask, onTaskDragS
              </div>
       {!showPomodoro && (
         <button
-          className="btn subtle pomodoro-toggle"
+          className="btn subtle section-toggle"
           onClick={() => setShowPomodoro(true)}
           aria-label="Show Pomodoro timer"
+          aria-expanded={false}
         >
-          Show Pomodoro timer
+          <Timer size={14} aria-hidden="true" />
+          <span>Show Pomodoro timer</span>
+          <ChevronDown size={14} className="section-toggle-chevron" aria-hidden="true" />
         </button>
       )}
       {showPomodoro && (
         <div className="pomodoro-section">
           <button
-            className="btn subtle pomodoro-toggle"
+            className="btn subtle section-toggle"
             onClick={() => setShowPomodoro(false)}
             aria-label="Hide Pomodoro timer"
+            aria-expanded={true}
           >
-            Hide Pomodoro timer
+            <Timer size={14} aria-hidden="true" />
+            <span>Hide Pomodoro timer</span>
+            <ChevronUp size={14} className="section-toggle-chevron" aria-hidden="true" />
           </button>
           <Pomodoro />
         </div>
       )}
       {!showScratchpad && (
         <button
-          className="btn subtle pomodoro-toggle"
+          className="btn subtle section-toggle"
           onClick={() => setShowScratchpad(true)}
           aria-label="Show scratchpad"
+          aria-expanded={false}
         >
-          Show scratchpad
+          <span>Show scratchpad</span>
+          <ChevronDown size={14} className="section-toggle-chevron" aria-hidden="true" />
         </button>
       )}
       {showScratchpad && (
         <div className="pomodoro-section">
           <button
-            className="btn subtle pomodoro-toggle"
+            className="btn subtle section-toggle"
             onClick={() => setShowScratchpad(false)}
             aria-label="Hide scratchpad"
+            aria-expanded={true}
           >
-            Hide scratchpad
+            <span>Hide scratchpad</span>
+            <ChevronUp size={14} className="section-toggle-chevron" aria-hidden="true" />
           </button>
           <Scratchpad />
         </div>
