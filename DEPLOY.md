@@ -244,6 +244,9 @@ grep -o 'assets/index-[A-Za-z0-9_-]*\.js' /var/www/calendar/index.html
 - The proxy only fetches `calendar.magister.net` over HTTPS — even
   if a request is forged, an arbitrary host or path is rejected with
   HTTP 400 before any upstream connection is opened.
+- The whole API can sit behind one password — see §10. It is off until
+  `APP_PASSWORD` is set, and the password is only ever compared on the
+  Pi, never sent to a browser.
 
 ## 9. Google Calendar OAuth setup
 
@@ -405,3 +408,83 @@ Three independent guards now prevent that, so no manual cleanup is needed:
 On the first push after the upgrade the sweep cleans up the old strays; the
 count shows up as `swept` in the push response (and the calendar is tidy
 again after the next sync).
+
+## 10. Password lock (private calendar)
+
+The whole app can sit behind one password. It is **off by default** and
+enabled purely by setting one environment variable on the Pi:
+
+```bash
+# On the Pi
+echo 'APP_PASSWORD=choose-a-long-password' >> /opt/personal-calendar-proxy/.env
+sudo systemctl restart personal-calendar-proxy
+```
+
+Check the result:
+
+```bash
+curl -s https://calendar.f1nn.me/api/session
+# {"ok":true,"required":true,"unlocked":false}
+
+curl -i -X POST https://calendar.f1nn.me/api/unlock \
+  -H 'Content-Type: application/json' -d '{"password":"wrong"}'
+# 401 + {"ok":false,"error":"Incorrect password"}
+
+curl -i -X POST https://calendar.f1nn.me/api/unlock \
+  -H 'Content-Type: application/json' -d '{"password":"choose-a-long-password"}'
+# 200 + Set-Cookie: pc_unlock=…; HttpOnly; SameSite=Strict; Secure
+
+curl -s https://calendar.f1nn.me/api/storage            # 401 {"error":"locked"}
+curl -s -H 'Cookie: pc_unlock=…' https://calendar.f1nn.me/api/storage
+```
+
+How it works:
+
+- **The password never reaches the browser.** It lives only in `APP_PASSWORD`
+  on the Pi and is compared server-side in constant time. Nothing about it is
+  in the JS bundle, so it cannot be read out of the page source.
+- **Unlocking is once per browser.** A correct password returns an `HttpOnly`
+  session cookie (180 days, `Secure` whenever the request arrived over TLS —
+  Nginx forwards `X-Forwarded-Proto`). The browser sends it on every later
+  request, so there is no prompt on reload. The app re-checks on mount and
+  whenever the tab regains focus.
+- **The app is never mounted while locked**, so a locked browser runs no sync,
+  no Google push and no storage read at all.
+- **Locked routes:** `/api/storage`, `/api/google/*` and `/ics` — i.e. your
+  events, tasks, feed, and the Google connection.
+- **Exempt on purpose:** `GET /api/session`, `POST /api/unlock`,
+  `POST /api/lock` (the app needs them to ask), `GET /api/google/callback`
+  (Google redirects back as a cross-site navigation, which carries no
+  `SameSite=Strict` cookie), and `/api/webhook/*` + `/api/v1/*` (the ESP32 and
+  the task webhook authenticate with `DEVICE_TOKEN` / `WEBHOOK_TOKEN`).
+- **Guessing is throttled:** 8 wrong attempts from one IP within 15 minutes
+  earns a 5-minute block (HTTP 429). The IP comes from the `X-Real-IP` /
+  `X-Forwarded-For` headers Nginx already sets.
+- **Rotating the password logs everyone out.** Sessions are fingerprinted with
+  the password, so changing `APP_PASSWORD` and restarting invalidates every
+  cookie — including your own, so unlock once more. To revoke everything
+  without changing the password, delete `access-sessions.json` next to
+  `data.json` and restart.
+- **Locking one browser by hand:** Settings → *Lock* (only shown while the
+  lock is enabled) clears the cookie and reloads the page into the lock
+  screen. Unlocking needs the password again.
+
+What this does *not* do — worth knowing:
+
+- The static page itself (`index.html`, `assets/…`) is still public: Nginx
+  serves it before the app is ever asked. The lock protects **the data**, not
+  the existence of the page or its JavaScript. To hide the page from the
+  internet as well, add `auth_basic` in Nginx (§5) on top of this.
+- The app keeps a `localStorage` cache of your events and tasks. On a device
+  that was unlocked before, that data stays readable in devtools — clear site
+  data when handing a device to someone else.
+- If the server cannot be reached, the app **fails open** and shows the
+  localStorage copy: a locked-out visitor gains nothing, but an offline owner
+  can still reach their own calendar. The server data itself is never readable
+  without the session cookie.
+- The lock is plain HTTP-level protection, not encryption: everything is TLS
+  only because Cloudflare/Nginx terminate TLS in front of it.
+
+Changing the password again is just the same two commands from the top. If you
+forgot it, remove the `APP_PASSWORD=` line and restart — the app is public
+again until you set a new one.

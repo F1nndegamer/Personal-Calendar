@@ -14,7 +14,7 @@
  */
 
 /** The current published version (semver: MAJOR.MINOR.PATCH). */
-export const APP_VERSION = '0.25.0';
+export const APP_VERSION = '1.0.0';
 
 /** How large a change set was. Drives which semver field is incremented. */
 export type BumpLevel = 'major' | 'minor' | 'patch';
@@ -36,6 +36,12 @@ export interface VersionEntry {
  * `APP_VERSION` — `src/__tests__/version.test.ts` enforces this.
  */
 export const VERSION_HISTORY: readonly VersionEntry[] = [
+  {
+    version: '1.0.0',
+    date: '2026-09-26',
+    level: 'major',
+    summary: 'Password lock: server-verified session gate in front of every browser route',
+  },
   {
     version: '0.25.0',
     date: '2026-09-26',

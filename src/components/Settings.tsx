@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useState } from 'react';
 import { X } from 'lucide-react';
 import { APP_VERSION } from '../version';
 import { useDialogA11y } from '../hooks/useDialogA11y';
+import { cachedSession, lockNow } from '../access';
 import { refreshGoogleAvailability, resetGoogleAvailabilityCache } from '../integrations';
 import { setPushTarget } from '../integrations/googlePush';
 import type { GoogleStatusResponse } from '../../server/googleTypes';
@@ -48,6 +49,9 @@ export function Settings({
   const [value, setValue] = useState(feedUrl);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  // Whether the server has a password configured. AppGate already asked, so
+  // the answer is cached — no request needed just to render this button.
+  const [lockEnabled, setLockEnabled] = useState(() => cachedSession()?.required === true);
   const titleId = useId();
   // Focus trap + `Escape` + focus restore. Initial focus stays with the
   // first-input effect below (plus text select for fast URL replacement).
@@ -406,6 +410,17 @@ export function Settings({
 
         <div className="dialog-footer">
           <div className="spacer" />
+          {lockEnabled && (
+            <button
+              className="btn"
+              onClick={() => {
+                setLockEnabled(false);
+                void lockNow().then(() => window.location.reload());
+              }}
+            >
+              Lock
+            </button>
+          )}
           <button className="btn" onClick={onClose}>Cancel</button>
           <button
             className="btn primary"

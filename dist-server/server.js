@@ -2,6 +2,9 @@
  * Production iCalendar proxy + data storage server.
  *
  * Routes:
+ *   GET  /api/session            → { required, unlocked } (password lock state)
+ *   POST /api/unlock             → password → session cookie
+ *   POST /api/lock               → clears the session cookie
  *   GET  /ics?url=…              → proxies to Magister
  *   GET  /api/storage            → returns { events, tasks, feedUrl }
  *   PUT  /api/storage            → saves { events, tasks, feedUrl }
@@ -19,12 +22,17 @@
  *   POST /api/google/push        → mirror the local event set (diffed)
  *   POST /api/google/push-target → choose the push target calendar
  *
+ * Everything the browser reaches (everything above except the Bearer-token
+ * routes) requires an unlocked session once APP_PASSWORD is set — see
+ * access.ts.
+ *
  * STORAGE_PATH env var controls where data is saved.
  */
 import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { validateProxyUrl } from './proxyCore.js';
 import { readStorage, writeStorage } from './storage.js';
+import { accessEnabled, clearCookieHeader, clearFailures, clientIp, isThrottled, issueSession, readUnlockCookie, recordFailure, requiresUnlock, sessionValid, unlockCookieHeader, verifyPassword, SESSION_TTL_MS, } from './access.js';
 import { handleDeviceCalendarRequest, isDeviceCalendarPath } from './deviceCalendar.js';
 import { handleGoogleRequest, isGooglePath } from './googleRoutes.js';
 import { appendWebhookTask, parseWebhookTask, tokenMatches, } from './webhook.js';
@@ -185,9 +193,119 @@ export async function handleWebhookTaskRequest(req, res, url) {
         }
     });
 }
+/** Whether the request reached us over TLS (directly or via Nginx). */
+function isSecureRequest(req) {
+    const proto = req.headers['x-forwarded-proto'];
+    const value = (Array.isArray(proto) ? proto[0] : proto)?.split(',')[0]?.trim().toLowerCase();
+    if (value)
+        return value === 'https';
+    return req.socket?.encrypted === true;
+}
+/** Read + parse a small JSON body. Rejects with `{status, message}`. */
+function readJsonBody(req, limit = 4 * 1024) {
+    return new Promise((resolve) => {
+        let body = '';
+        let overflow = false;
+        req.on('data', (chunk) => {
+            body += chunk.toString();
+            if (body.length > limit) {
+                overflow = true;
+                req.destroy();
+            }
+        });
+        req.on('end', () => {
+            if (overflow) {
+                resolve({ ok: false, status: 413, message: 'Body too large' });
+                return;
+            }
+            try {
+                resolve({ ok: true, value: JSON.parse(body) });
+            }
+            catch {
+                resolve({ ok: false, status: 400, message: 'Body must be valid JSON' });
+            }
+        });
+    });
+}
+function sendJson(res, status, payload, cookie) {
+    const headers = {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Cache-Control': 'no-store',
+    };
+    if (cookie)
+        headers['Set-Cookie'] = cookie;
+    res.writeHead(status, headers);
+    res.end(JSON.stringify(payload));
+}
+/**
+ * The password lock's own endpoints: check the state, exchange a password for
+ * a session cookie, and forget the cookie again. Always reachable — the app
+ * cannot know whether it is locked without them.
+ */
+async function handleAccessRequest(req, res, path) {
+    const secure = isSecureRequest(req);
+    const required = accessEnabled();
+    const unlocked = !required || sessionValid(readUnlockCookie(req.headers.cookie));
+    if (path === '/api/session' && req.method === 'GET') {
+        sendJson(res, 200, { ok: true, required, unlocked });
+        return;
+    }
+    if (path === '/api/unlock') {
+        if (req.method !== 'POST') {
+            sendJson(res, 405, { ok: false, error: 'Method Not Allowed' });
+            return;
+        }
+        // Nothing to unlock while the lock is off — answer like a success so a
+        // stale lock screen never gets stuck.
+        if (!required) {
+            sendJson(res, 200, { ok: true, required: false });
+            return;
+        }
+        const ip = clientIp(req);
+        if (isThrottled(ip)) {
+            sendJson(res, 429, { ok: false, error: 'Too many attempts' });
+            return;
+        }
+        const body = await readJsonBody(req);
+        if (!body.ok) {
+            sendJson(res, body.status, { ok: false, error: body.message });
+            return;
+        }
+        const password = typeof body.value === 'object' && body.value !== null
+            ? body.value.password
+            : undefined;
+        if (!verifyPassword(password)) {
+            recordFailure(ip);
+            sendJson(res, 401, { ok: false, error: 'Incorrect password' });
+            return;
+        }
+        clearFailures(ip);
+        sendJson(res, 200, { ok: true, expiresInDays: Math.round(SESSION_TTL_MS / 86_400_000) }, unlockCookieHeader(issueSession(), secure));
+        return;
+    }
+    if (path === '/api/lock') {
+        if (req.method !== 'POST') {
+            sendJson(res, 405, { ok: false, error: 'Method Not Allowed' });
+            return;
+        }
+        sendJson(res, 200, { ok: true }, clearCookieHeader(secure));
+        return;
+    }
+    sendJson(res, 404, { ok: false, error: 'Not Found' });
+}
 export async function handleRequest(req, res) {
     const url = req.url ?? '';
     const path = url.split('?')[0];
+    if (path === '/api/session' || path === '/api/unlock' || path === '/api/lock') {
+        await handleAccessRequest(req, res, path);
+        return;
+    }
+    // Password lock: the browser routes all need a live session cookie. The
+    // Bearer-token routes and the Google callback are exempt (see access.ts).
+    if (accessEnabled() && requiresUnlock(path) && !sessionValid(readUnlockCookie(req.headers.cookie))) {
+        sendJson(res, 401, { ok: false, error: 'locked' });
+        return;
+    }
     if (path === '/api/storage') {
         handleStorageRequest(req, res);
         return;
