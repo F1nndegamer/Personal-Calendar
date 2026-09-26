@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { useGooglePush } from '../useGooglePush';
 import type { CalendarEvent } from '../../calendar/types';
+import type { Task } from '../../tasks/types';
 
 const mocks = vi.hoisted(() => ({
   refreshGoogleAvailability: vi.fn<(impl?: unknown) => Promise<boolean>>(),
@@ -50,6 +51,32 @@ describe('useGooglePush', () => {
     expect(result.current.state.status).toBe('success');
     expect(result.current.state.created).toBe(1);
     expect(result.current.state.lastPushAt).toBeDefined();
+  });
+
+  it('mirrors tasks with a due date alongside events', async () => {
+    const homework: Task = {
+      id: 't1',
+      title: 'Math homework',
+      completed: false,
+      priority: 'medium',
+      color: 'blue',
+      dueDate: '2026-09-30T12:00:00.000Z',
+      estimatedMinutes: 45,
+      subtasks: [],
+    };
+    const { result } = renderHook(() =>
+      useGooglePush({ getEvents: () => [manualEvent], getTasks: () => [homework] }),
+    );
+    await act(async () => {
+      await result.current.pushNow();
+    });
+    const payload = mocks.pushToGoogle.mock.calls[0][0] as { id: string }[];
+    expect(payload.map((e) => e.id)).toEqual(['ev1', 'task:t1']);
+    expect(payload[1]).toMatchObject({
+      title: 'Math homework',
+      start: '2026-09-30T12:00:00.000Z',
+      end: '2026-09-30T12:45:00.000Z',
+    });
   });
 
   it('stays silent when Google is not connected', async () => {

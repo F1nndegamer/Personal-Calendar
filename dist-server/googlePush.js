@@ -1,5 +1,6 @@
 import { createGoogleEvent, deleteGoogleEvent, eventInstant, listAllEvents, toGoogleEventBody, updateGoogleEvent, } from './googleOAuth.js';
 import { mapGoogleEventToExternal } from './googleApi.js';
+import { isAllDayDate } from './googleTypes.js';
 /** Hard cap for one push request (also bounded by the route's body limit). */
 export const MAX_PUSH_EVENTS = 2000;
 /** Parallelism for push operations (creates/updates/deletes). */
@@ -185,12 +186,26 @@ export async function syncPushedEvents(input) {
     }
     return { pushed: next, stats };
 }
+/** All-day `YYYY-MM-DD` → the instant `mapGoogleEventToExternal` reports for it. */
+function allDayInstant(date, isEnd) {
+    const ms = Date.parse(`${date}T00:00:00Z`);
+    if (Number.isNaN(ms))
+        return date;
+    // An all-day end is exclusive; the importer rolls it over to the next day.
+    return new Date(isEnd ? ms + 24 * 3_600_000 : ms).toISOString();
+}
+/** Instant a push payload's start/end has on the Google side of the mapping. */
+function mirroredInstant(value, other, isEnd) {
+    return isAllDayDate(value) && isAllDayDate(other)
+        ? allDayInstant(value, isEnd)
+        : eventInstant(value);
+}
 /** Identity of an event's content, ignoring formatting/case differences. */
 function contentSignature(title, start, end, description) {
     return [
         title.trim().toLowerCase(),
-        eventInstant(start),
-        eventInstant(end),
+        mirroredInstant(start, end, false),
+        mirroredInstant(end, start, true),
         (description ?? '').trim(),
     ].join('\u0000');
 }
@@ -217,8 +232,12 @@ export async function sweepOwnCopies(input) {
     let maxEnd = Number.NEGATIVE_INFINITY;
     for (const ev of input.events) {
         bySignature.set(contentSignature(ev.title, ev.start, ev.end, ev.description), ev);
+        // An all-day end is exclusive, so widen the listing window to cover the
+        // day the importer reports for it (see `allDayInstant`).
         minStart = Math.min(minStart, new Date(ev.start).getTime());
-        maxEnd = Math.max(maxEnd, new Date(ev.end).getTime());
+        maxEnd = Math.max(maxEnd, isAllDayDate(ev.end) && isAllDayDate(ev.start)
+            ? new Date(allDayInstant(ev.end, true)).getTime()
+            : new Date(ev.end).getTime());
     }
     if (!Number.isFinite(minStart) || !Number.isFinite(maxEnd))
         return result;

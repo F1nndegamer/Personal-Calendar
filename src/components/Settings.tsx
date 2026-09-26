@@ -256,9 +256,11 @@ export function Settings({
                       </select>
                     </label>
                     <span className="settings-hint">
-                      Your Magister lessons and events you create in the app are
-                      kept up to date in this calendar automatically. Events
-                      imported from Google are never pushed back.
+                      Your Magister lessons, events you create in the app and
+                      your tasks with a due date are kept up to date in this
+                      calendar automatically. Tasks appear on their due date
+                      (all-day when no time is set) and are marked ✓ once done.
+                      Events imported from Google are never pushed back.
                     </span>
                     {google.lastPushAt != null && (
                       <span className="settings-hint">

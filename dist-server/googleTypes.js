@@ -34,3 +34,11 @@ export function pushTag(localId) {
 export function isOwnCopyTag(privateProps) {
     return !!privateProps && privateProps[PUSH_TAG_KEY] === PUSH_TAG_VALUE;
 }
+/**
+ * True for an all-day marker (`YYYY-MM-DD`). Push payloads use this form for a
+ * date without a wall-clock time (a task whose due date is a day, not a time);
+ * Google needs `start.date`/`end.date` for those and rejects `dateTime`.
+ */
+export function isAllDayDate(value) {
+    return /^\d{4}-\d{2}-\d{2}$/.test(value);
+}

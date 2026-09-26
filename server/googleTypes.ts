@@ -128,17 +128,30 @@ export interface GoogleStatusResponse {
 }
 
 /**
- * One local event as sent by the browser to `POST /api/google/push`.
- * The list is the *complete* desired state of non-Google events — anything
+ * True for an all-day marker (`YYYY-MM-DD`). Push payloads use this form for a
+ * date without a wall-clock time (a task whose due date is a day, not a time);
+ * Google needs `start.date`/`end.date` for those and rejects `dateTime`.
+ */
+export function isAllDayDate(value: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
+/**
+ * One local item (event or task) as sent by the browser to
+ * `POST /api/google/push`.
+ * The list is the *complete* desired state of non-Google items — anything
  * previously pushed but missing from it gets deleted on Google's side.
  */
 export interface GooglePushEvent {
-  /** Local CalendarEvent id (stable, used as the mapping key). */
+  /**
+   * Local id (stable, used as the mapping key). Events use their
+   * `CalendarEvent` id, tasks use `task:<Task id>` — see `collectPushTasks`.
+   */
   id: string;
   title: string;
-  /** ISO date-time */
+  /** ISO date-time, or `YYYY-MM-DD` (all-day) with the same form for `end`. */
   start: string;
-  /** ISO date-time */
+  /** ISO date-time, or `YYYY-MM-DD` (all-day, exclusive) — see `start`. */
   end: string;
   description?: string;
 }

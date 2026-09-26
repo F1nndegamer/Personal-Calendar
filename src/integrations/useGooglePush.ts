@@ -1,20 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CalendarEvent } from '../calendar/types';
+import type { Task } from '../tasks/types';
 import { refreshGoogleAvailability } from './index';
-import { collectPushEvents, pushToGoogle } from './googlePush';
+import { collectPushPayload, pushToGoogle } from './googlePush';
 
 /**
  * Auto-push orchestration (app → Google).
  *
- * Pushes the complete local (non-Google) event set whenever it changes and
- * once shortly after page load (so a fresh setup still reaches Google even
- * without a schedule sync). The server diffs the payload, so pushes are
- * cheap no-ops when nothing changed.
+ * Pushes the complete local (non-Google) event set plus the user's tasks
+ * whenever either changes and once shortly after page load (so a fresh setup
+ * still reaches Google even without a schedule sync). The server diffs the
+ * payload, so pushes are cheap no-ops when nothing changed.
  *
  * Guarantees:
  * - never two pushes in flight from this tab (pending runs coalesce)
  * - silent no-op when Google is not connected (cached availability probe)
- * - schedulePush() is debounced and safe to call on every event change
+ * - schedulePush() is debounced and safe to call on every event/task change
  * - state is fully separate from schedule-sync state
  */
 
@@ -34,6 +35,8 @@ export interface GooglePushState {
 export interface UseGooglePushOptions {
   /** Reads the current event list (latest committed value) */
   getEvents: () => CalendarEvent[];
+  /** Reads the current task list (latest committed value) */
+  getTasks?: () => Task[];
 }
 
 export interface GooglePush {
@@ -90,7 +93,10 @@ export function useGooglePush(options: UseGooglePushOptions): GooglePush {
     // Skip silently when Google is not connected (probe caches per page).
     const available = await refreshGoogleAvailability();
     if (!available) return;
-    const events = collectPushEvents(callbacksRef.current.getEvents());
+    const events = collectPushPayload(
+      callbacksRef.current.getEvents(),
+      callbacksRef.current.getTasks?.() ?? [],
+    );
     runningRef.current = true;
     setState((s) => ({ ...s, status: 'pushing' }));
     try {

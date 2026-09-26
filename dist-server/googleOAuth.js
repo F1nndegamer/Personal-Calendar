@@ -6,7 +6,7 @@
  * tokens live in `googleStore.ts` and are never logged or sent
  * to the browser.
  */
-import { pushTag } from './googleTypes.js';
+import { isAllDayDate, pushTag } from './googleTypes.js';
 const AUTH_BASE = 'https://accounts.google.com/o/oauth2/v2/auth';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 export const GOOGLE_API_BASE = 'https://www.googleapis.com/calendar/v3';
@@ -167,7 +167,8 @@ export function isAuthError(err) {
 }
 /**
  * Normalize an ISO date-time for comparisons; falls back to the raw string.
- * (Shared with the push engine so signatures survive `Z` vs `.000Z`.)
+ * (Shared with the push engine so signatures survive `Z` vs `.000Z`. A
+ * `YYYY-MM-DD` all-day marker parses as midnight UTC.)
  */
 export function eventInstant(iso) {
     const t = new Date(iso).getTime();
@@ -175,10 +176,13 @@ export function eventInstant(iso) {
 }
 /** Local event → Google `events` resource body. */
 export function toGoogleEventBody(input) {
+    // All-day payloads must use `date` — Google rejects `dateTime` for them.
+    const allDay = isAllDayDate(input.start) && isAllDayDate(input.end);
+    const when = (v) => (allDay ? { date: v } : { dateTime: eventInstant(v) });
     const body = {
         summary: input.title,
-        start: { dateTime: eventInstant(input.start) },
-        end: { dateTime: eventInstant(input.end) },
+        start: when(input.start),
+        end: when(input.end),
     };
     if (input.description)
         body.description = input.description;

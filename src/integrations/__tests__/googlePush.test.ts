@@ -1,6 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
-import { collectPushEvents, pushToGoogle, setPushTarget } from '../googlePush';
+import {
+  collectPushEvents,
+  collectPushPayload,
+  collectPushTasks,
+  pushToGoogle,
+  setPushTarget,
+  TASK_PUSH_ID_PREFIX,
+} from '../googlePush';
 import type { CalendarEvent } from '../../calendar/types';
+import type { Task } from '../../tasks/types';
 
 function local(id: string, over: Partial<CalendarEvent> = {}): CalendarEvent {
   return {
@@ -13,6 +21,23 @@ function local(id: string, over: Partial<CalendarEvent> = {}): CalendarEvent {
     ...over,
   };
 }
+
+function task(id: string, over: Partial<Task> = {}): Task {
+  return {
+    id,
+    title: 'Homework',
+    completed: false,
+    priority: 'medium',
+    color: 'blue',
+    subtasks: [],
+    ...over,
+  };
+}
+
+/** Local wall-clock → ISO; keeps the assertions timezone-independent. */
+const at = (y: number, m: number, d: number, h = 0, min = 0): string =>
+  new Date(y, m - 1, d, h, min).toISOString();
+
 
 describe('collectPushEvents', () => {
   it('includes manual and Magister events but never Google-sourced ones', () => {
@@ -30,6 +55,96 @@ describe('collectPushEvents', () => {
     const plain = collectPushEvents([local('b')]);
     expect(plain[0]).not.toHaveProperty('description');
     expect(plain[0]).toMatchObject({ id: 'b', start: local('b').start, end: local('b').end });
+  });
+});
+
+describe('collectPushTasks', () => {
+  it('mirrors a due time as a block of its estimate', () => {
+    const out = collectPushTasks([
+      task('t1', { dueDate: at(2026, 9, 30, 14, 30), estimatedMinutes: 45 }),
+    ]);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({
+      id: 'task:t1',
+      title: 'Homework',
+      start: at(2026, 9, 30, 14, 30),
+      end: at(2026, 9, 30, 15, 15),
+    });
+  });
+
+  it('defaults to a 30 minute block and floors silly estimates', () => {
+    const dflt = collectPushTasks([task('a', { dueDate: at(2026, 9, 30, 9, 0) })])[0];
+    expect(dflt.end).toBe(at(2026, 9, 30, 9, 30));
+    const tiny = collectPushTasks([
+      task('b', { dueDate: at(2026, 9, 30, 9, 0), estimatedMinutes: 1 }),
+    ])[0];
+    expect(tiny.end).toBe(at(2026, 9, 30, 9, 5));
+  });
+
+  it('turns a date-only due date into an all-day event (exclusive end)', () => {
+    const out = collectPushTasks([task('t2', { dueDate: at(2026, 9, 30) })]);
+    expect(out[0].start).toBe('2026-09-30');
+    expect(out[0].end).toBe('2026-10-01');
+  });
+
+  it('skips undated, unparseable and already scheduled tasks', () => {
+    const out = collectPushTasks([
+      task('a'),
+      task('b', { dueDate: 'nonsense' }),
+      task('c', { dueDate: at(2026, 9, 30, 10, 0), eventId: 'ev-1' }),
+    ]);
+    expect(out).toEqual([]);
+  });
+
+  it('keeps a completed task, marked with ✓ and explained', () => {
+    const done = collectPushTasks([
+      task('t3', { completed: true, dueDate: at(2026, 9, 30, 10, 0) }),
+    ])[0];
+    expect(done.title).toBe('✓ Homework');
+    expect(done.description).toContain('Completed in Personal Calendar.');
+    const open = collectPushTasks([task('t4', { dueDate: at(2026, 9, 30, 10, 0) })])[0];
+    expect(open.title).toBe('Homework');
+    expect(open).not.toHaveProperty('description');
+  });
+
+  it('folds notes, subtasks, priority and category into the description', () => {
+    const out = collectPushTasks([
+      task('t5', {
+        dueDate: at(2026, 9, 30, 10, 0),
+        description: 'Chapters 1-3',
+        category: ' School ',
+        priority: 'high',
+        subtasks: [
+          { id: 's1', title: 'Read', completed: true },
+          { id: 's2', title: 'Summarize', completed: false },
+        ],
+      }),
+    ])[0];
+    expect(out.description).toContain('Chapters 1-3');
+    expect(out.description).toContain('☑ Read');
+    expect(out.description).toContain('☐ Summarize');
+    expect(out.description).toContain('Priority: high · Category: School');
+    expect(out.description).toContain('— Personal Calendar task');
+  });
+
+  it('falls back to a readable title for a blank one', () => {
+    const out = collectPushTasks([task('t6', { title: '   ', dueDate: at(2026, 9, 30, 10, 0) })]);
+    expect(out[0].title).toBe('Untitled task');
+  });
+});
+
+describe('collectPushPayload', () => {
+  it('sends events first and mirrored tasks after, keyed with a task: prefix', () => {
+    const out = collectPushPayload(
+      [local('e1'), local('g1', { source: 'external', externalId: 'google:abc' })],
+      [task('t1', { dueDate: at(2026, 9, 30, 10, 0) })],
+    );
+    expect(TASK_PUSH_ID_PREFIX).toBe('task:');
+    expect(out.map((e) => e.id)).toEqual(['e1', 'task:t1']);
+  });
+
+  it('is events-only when no tasks are passed', () => {
+    expect(collectPushPayload([local('e1')]).map((e) => e.id)).toEqual(['e1']);
   });
 });
 

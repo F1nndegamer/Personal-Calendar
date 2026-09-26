@@ -475,6 +475,10 @@ export default function App() {
   useEffect(() => {
     eventsRef.current = events;
   }, [events]);
+  const tasksRef = useRef(tasks);
+  useEffect(() => {
+    tasksRef.current = tasks;
+  }, [tasks]);
   const sync = useScheduleSync({
     getEvents: () => eventsRef.current,
     commitEvents: (next) => setEvents(next),
@@ -528,17 +532,26 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sync.state.status, sync.state.lastSyncAt]);
 
-  // Google push (app → Google) — mirrors local + Magister events into the
-  // chosen Google calendar. Debounced after every event change (same shape
-  // as the persist effect): the server diffs the payload, so pushes with
-  // nothing to do are cheap no-ops. The hook also runs one kickoff push
-  // shortly after mount, and skips silently when Google isn't connected.
-  const push = useGooglePush({ getEvents: () => eventsRef.current });
+  // Google push (app → Google) — mirrors local + Magister events and the
+  // user's tasks into the chosen Google calendar. Debounced after every
+  // event/task change (same shape as the persist effect): the server diffs
+  // the payload, so pushes with nothing to do are cheap no-ops. The hook also
+  // runs one kickoff push shortly after mount, and skips silently when Google
+  // isn't connected.
+  const push = useGooglePush({
+    getEvents: () => eventsRef.current,
+    getTasks: () => tasksRef.current,
+  });
   useEffect(() => {
     if (events === initial.events) return;
     push.schedulePush();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [events]);
+  useEffect(() => {
+    if (tasks === initial.tasks) return;
+    push.schedulePush();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tasks]);
 
   // Surface push failures as a toast (deduped so a persistent error only
   // announces once; successes stay quiet — they happen on every change).

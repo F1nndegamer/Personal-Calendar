@@ -316,10 +316,20 @@ writable `STORAGE_PATH`/`GOOGLE_AUTH_PATH`, then
 
 Sync is bidirectional: after a successful import, the browser mirrors the
 full local event set (manual + Magister, `google:`-sourced events excluded)
-into one chosen Google calendar via `POST /api/google/push`.
+**and every task that has a due date** into one chosen Google calendar via
+`POST /api/google/push`.
 
 How it behaves:
 
+- **Tasks are mirrored as time blocks.** A task with a due date is pushed
+  under the mapping key `task:<taskId>`, so it never collides with an event
+  copy. A timed due date becomes a block that starts at that time and lasts as
+  long as the task's estimate (default 30 min, minimum 5); a due date at
+  midnight becomes an all-day entry. Notes, subtasks, priority and category go
+  into the description, and a completed task keeps its copy with a `✓` prefix —
+  so Google reflects what the app shows instead of quietly dropping work.
+  Tasks that were scheduled onto the calendar (`eventId`) are not mirrored a
+  second time, and undated tasks never reach Google.
 - **Choose a target** in Settings → Google Calendar → *Push to*. Only
   calendars with a writable role (`owner`/`writer`) are listed, and
   `POST /api/google/push-target` re-verifies the role server-side (403 for

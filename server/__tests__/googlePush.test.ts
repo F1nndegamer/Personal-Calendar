@@ -10,6 +10,7 @@ import {
   MAX_PUSH_EVENTS,
 } from '../googlePush.js';
 import type { GoogleApiEvent, GooglePushEvent } from '../googleTypes.js';
+import { eventInstant, toGoogleEventBody } from '../googleOAuth.js';
 import type { PushedEventMap } from '../googleStore.js';
 
 const ev = (id: string, over: Partial<GooglePushEvent> = {}): GooglePushEvent => ({
@@ -88,6 +89,45 @@ describe('parsePushBody', () => {
       expect(r.events[0].title).toBe('Wiskunde');
       expect(r.events[0].description).toHaveLength(2000);
     }
+  });
+
+  it('accepts an all-day (date-only) payload from a mirrored task', () => {
+    const r = parsePushBody({
+      events: [{ id: 'task:t1', title: '✓ Math homework', start: '2026-09-30', end: '2026-10-01' }],
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.events[0]).toEqual({
+      id: 'task:t1', title: '✓ Math homework', start: '2026-09-30', end: '2026-10-01',
+    });
+  });
+});
+
+describe('toGoogleEventBody', () => {
+  it('uses `date` (never `dateTime`) for an all-day task payload', () => {
+    const body = toGoogleEventBody({
+      id: 'task:t1', title: 'Math homework', start: '2026-09-30', end: '2026-10-01',
+    });
+    expect(body).toMatchObject({
+      summary: 'Math homework',
+      start: { date: '2026-09-30' },
+      end: { date: '2026-10-01' },
+      extendedProperties: { private: { pcApp: 'personal-calendar', pcLocalId: 'task:t1' } },
+    });
+  });
+
+  it('normalizes timed payloads to UTC dateTimes', () => {
+    const body = toGoogleEventBody({
+      id: 'e1',
+      title: 'Wiskunde',
+      start: '2026-09-30T08:00:00+02:00',
+      end: '2026-09-30T09:00:00+02:00',
+    });
+    expect(body.start).toEqual({ dateTime: '2026-09-30T06:00:00.000Z' });
+    expect(body.end).toEqual({ dateTime: '2026-09-30T07:00:00.000Z' });
+  });
+
+  it('treats a date-only marker as midnight UTC when it lands in a dateTime', () => {
+    expect(eventInstant('2026-09-30')).toBe('2026-09-30T00:00:00.000Z');
   });
 });
 
@@ -339,6 +379,32 @@ describe('sweepOwnCopies', () => {
     // The Google description is trimmed, the local one keeps its leading space.
     const { fetchImpl } = sweepFetch({ primary: [item()] });
     expect(await sweep(fetchImpl)).toEqual({ deleted: 1, errors: [] });
+  });
+
+  it('matches an all-day copy of a mirrored task (date-only payload)', async () => {
+    const taskPayload = payload({
+      id: 'task:t1',
+      title: '✓ Math homework',
+      start: '2026-09-30',
+      end: '2026-10-01',
+      description: '— Personal Calendar task',
+    });
+    const allDayCopy = item({
+      id: 'task-copy',
+      summary: '✓ Math homework',
+      description: '— Personal Calendar task',
+      start: { date: '2026-09-30' },
+      end: { date: '2026-10-01' },
+    });
+    const { fetchImpl, calls } = sweepFetch({ primary: [allDayCopy] });
+    const r = await sweep(fetchImpl, {
+      events: [taskPayload],
+      pushed: { 'task:t1': { calendarId: 'websync', eventId: 'g-2', key: 'k' } },
+    });
+    expect(r).toEqual({ deleted: 1, errors: [] });
+    expect(
+      calls.some((c) => c.method === 'DELETE' && c.url.includes('/events/task-copy')),
+    ).toBe(true);
   });
 
   it('keeps copies it cannot prove are ours', async () => {

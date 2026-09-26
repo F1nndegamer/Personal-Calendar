@@ -7,7 +7,7 @@
  * to the browser.
  */
 
-import { pushTag } from './googleTypes.js';
+import { isAllDayDate, pushTag } from './googleTypes.js';
 import type { GoogleApiEvent } from './googleTypes.js';
 
 
@@ -257,13 +257,16 @@ export interface LocalEventInput {
   id?: string;
   title: string;
   description?: string;
+  /** ISO date-time, or `YYYY-MM-DD` for an all-day event (see `end`). */
   start: string;
+  /** ISO date-time, or `YYYY-MM-DD` (exclusive end of the all-day range). */
   end: string;
 }
 
 /**
  * Normalize an ISO date-time for comparisons; falls back to the raw string.
- * (Shared with the push engine so signatures survive `Z` vs `.000Z`.)
+ * (Shared with the push engine so signatures survive `Z` vs `.000Z`. A
+ * `YYYY-MM-DD` all-day marker parses as midnight UTC.)
  */
 export function eventInstant(iso: string): string {
   const t = new Date(iso).getTime();
@@ -272,10 +275,13 @@ export function eventInstant(iso: string): string {
 
 /** Local event → Google `events` resource body. */
 export function toGoogleEventBody(input: LocalEventInput): Record<string, unknown> {
+  // All-day payloads must use `date` — Google rejects `dateTime` for them.
+  const allDay = isAllDayDate(input.start) && isAllDayDate(input.end);
+  const when = (v: string) => (allDay ? { date: v } : { dateTime: eventInstant(v) });
   const body: Record<string, unknown> = {
     summary: input.title,
-    start: { dateTime: eventInstant(input.start) },
-    end: { dateTime: eventInstant(input.end) },
+    start: when(input.start),
+    end: when(input.end),
   };
   if (input.description) body.description = input.description;
   if (input.id) body.extendedProperties = { private: pushTag(input.id) };
