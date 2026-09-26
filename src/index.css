@@ -1389,6 +1389,10 @@ input[type='time'] {
 .pomodoro-section.scratchpad-section {
   flex: 0 1 auto;
   overflow: hidden;
+  /* …but never below a usable jot area (a couple of full lines). Past this
+     point the panel itself scrolls (see .task-panel) instead of squeezing the
+     field down to a sliced line. */
+  min-height: 104px;
 }
 
 .scratchpad-section .scratchpad {
@@ -1550,18 +1554,18 @@ input[type='time'] {
  */
 @media (max-height: 720px) {
   .pomodoro-card {
-    gap: 8px;
-    padding: 10px 10px;
+    gap: 6px;
+    padding: 8px;
   }
 
   .pomodoro-time {
-    font-size: 26px;
+    font-size: 24px;
   }
 
   .pomodoro-btn {
-    width: 32px;
-    height: 32px;
-    font-size: 14px;
+    width: 28px;
+    height: 28px;
+    font-size: 13px;
   }
 
   .pomodoro-section,
@@ -1570,9 +1574,21 @@ input[type='time'] {
     padding: 8px;
   }
 
+  .btn.subtle.section-toggle {
+    padding: 5px 8px;
+    font-size: 12px;
+  }
+
   .scratchpad-input {
-    height: 72px;
+    /* Sized to whole lines (18px line-height + padding + border) so the last
+       visible line is never sliced in half. */
+    line-height: 18px;
+    height: 54px;
     min-height: 40px;
+  }
+
+  .task-list {
+    padding: 6px;
   }
 
   .task-panel-footer {
