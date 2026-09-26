@@ -9,7 +9,7 @@ quoted, so nothing gets lost. Features that were never on the list are called
 out separately inside each section.
 
 Legend: **✅** implemented · **🟡** partly implemented (the open half is repeated
-in §2) · **⬜** not implemented yet. Last reviewed: 2026-09-23.
+in §2) · **⬜** not implemented yet. Last reviewed: 2026-09-27.
 
 ---
 
@@ -164,9 +164,17 @@ recurrence editor (`CalendarEvent.recurrence` is reserved but unused) — see §
 - **Version policy & tooling** — `src/version.ts` as the single source of truth,
   `version:bump` / `version:sync` / `version:check`, enforced by the test suite
   and by `npm run build` (see `VERSION.md`, `AGENTS.md`).
-- **Quality gates** — 229 unit/component tests across 16 files (ICS parsing,
-  month maths, gestures, buffers, notifications, device feed, proxy, storage,
-  webhook, sync), ESLint, TypeScript checks and a production build.
+- **Search / command palette (`Ctrl` / `Cmd` + `K`)** (v1.1.0) — a spotlight-style
+  overlay over actions, events and tasks: fuzzy subsequence scoring over title
+  (weighted above category / description), multi-token queries where every token
+  must land, grouped results capped per group, `↑` / `↓` / `Home` / `End` to move
+  (wrapping), `Enter` to open, `Esc` to close, pointer selection, and an empty
+  state. Opens from the toolbar's search button on desktop as well as the
+  shortcut; `src/commandPalette/{search,collect,CommandPalette}`.
+- **Quality gates** — 408 unit/component tests across 28 files (ICS parsing,
+  month maths, gestures, buffers, notifications, command palette, device feed,
+  proxy, storage, webhook, sync), ESLint, TypeScript checks and a production
+  build.
 - **Docs** — `README.md`, `VERSION.md`, `AGENTS.md` and `DEPLOY.md` (systemd
   units, Nginx, security notes, auto-update debugging).
 
@@ -227,11 +235,6 @@ recurrence editor (`CalendarEvent.recurrence` is reserved but unused) — see §
 
 ### 2.2 Planned next, but never on the original list
 
-- **Search / command palette (`Ctrl` / `Cmd` + `K`)** — ⬜ jump to any event,
-  task or date from a command-style overlay: fuzzy scoring over title, category
-  and description, grouped results (events / tasks / actions), keyboard-only
-  navigation, `Enter` to open the item or switch the view. This is the next
-  change being built.
 - **All-day row above the week grid** — ⬜ all-day items currently render as
   midnight-to-midnight blocks (which is how the feed's `VALUE=DATE` events are
   imported). Adding a dedicated sticky all-day/multi-day banner row keeps them

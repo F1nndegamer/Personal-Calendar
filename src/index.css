@@ -163,7 +163,7 @@ button {
 
 /*
  * Shared button for every toolbar control — Today, prev/next, Day|Week, Sync,
- * Settings and Reload.
+ * Search, Settings and Reload.
  *
  * Sized by `height` + `padding` rather than a fixed width on purpose: a
  * control carrying a label ("Sync") and one carrying only an icon both fit
@@ -862,6 +862,172 @@ input[type='time'] {
   text-transform: uppercase;
   font-size: 10px;
   letter-spacing: 0.05em;
+}
+
+/* ---------- Command palette (Ctrl / Cmd + K) ---------- */
+
+/*
+ * Spotlight-style overlay. The panel itself never scrolls — only the result
+ * list does — so the search field and the key hints stay put while results
+ * move under them.
+ */
+.command-palette {
+  max-width: 560px;
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+}
+
+.command-palette-input {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.command-palette-input svg {
+  flex-shrink: 0;
+  color: var(--text-faint);
+}
+
+.command-palette-input input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text);
+  font-size: 14.5px;
+}
+
+.command-palette-input input::placeholder {
+  color: var(--text-faint);
+}
+
+/*
+ * The whole input row reads as one focus target, so the row shows the focus
+ * and the field inside it does not — otherwise the global `:focus-visible` ring
+ * would outline just the bare input in the middle of a bordered box. Higher
+ * specificity than the global rule, so it wins regardless of source order.
+ */
+.command-palette .command-palette-input input:focus-visible {
+  outline: none;
+}
+
+.command-palette-input:focus-within {
+  background: rgba(255, 255, 255, 0.025);
+  box-shadow: inset 0 -1px 0 var(--accent);
+}
+
+.command-palette kbd {
+  font-family: inherit;
+  font-size: 10.5px;
+  line-height: 1;
+  color: var(--text-faint);
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 5px;
+  min-width: 17px;
+  text-align: center;
+}
+
+.command-palette-esc {
+  flex-shrink: 0;
+}
+
+.command-palette-list {
+  max-height: min(52vh, 420px);
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.command-palette-group + .command-palette-group {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.command-palette-group-label {
+  padding: 8px 9px 4px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.command-palette-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 9px;
+  border-radius: 7px;
+}
+
+/* Left accent bar so the highlight survives OLED's dimmed surfaces. */
+.command-palette-item.active {
+  background: var(--accent-muted);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.command-palette-item-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.command-palette-item-title {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-palette-item-detail {
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-palette-item-hint,
+.command-palette-item-key {
+  flex-shrink: 0;
+}
+
+.command-palette-item-hint {
+  color: var(--text-faint);
+  font-size: 11.5px;
+}
+
+.command-palette-empty {
+  margin: 0;
+  padding: 22px 12px;
+  color: var(--text-faint);
+  font-size: 12.5px;
+  text-align: center;
+}
+
+.command-palette-footer {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 9px 16px;
+  border-top: 1px solid var(--border-subtle);
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+.command-palette-footer span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 
@@ -2597,6 +2763,17 @@ input[type='time'] {
   }
   .app.mobile .quickadd-dialog {
     max-width: 100%;
+  }
+
+  /* The generic mobile dialog rule above re-applies the sheet padding; the
+   * palette draws its own rows edge to edge, so put the padding back only
+   * where it matters — the safe area under the key-hint footer. */
+  .app.mobile .command-palette {
+    padding: 0;
+  }
+
+  .app.mobile .command-palette-footer {
+    padding-bottom: calc(9px + var(--sab));
   }
 
   /* Toast stack: sits above the tab bar */

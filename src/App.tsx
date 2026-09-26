@@ -17,6 +17,8 @@ import { loadSnapshot, saveSnapshot } from './storage/storage';
 import { useScheduleSync } from './integrations/useScheduleSync';
 import { useGooglePush } from './integrations/useGooglePush';
 import { Settings } from './components/Settings';
+import { CommandPalette } from './commandPalette/CommandPalette';
+import type { CommandItem } from './commandPalette/search';
 import { loadFromServer, saveToServer } from './serverStorage';
 import { usePwaInstall } from './pwa';
 import {
@@ -176,6 +178,9 @@ export default function App() {
   const [dialogTask, setDialogTask] = useState<Task | null>(null);
   const [isNewTask, setIsNewTask] = useState(false);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
+  // Command palette (Ctrl/Cmd + K). Conditionally mounted below so its query
+  // and selection reset on every open.
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
   // PWA install state — drives the "Add to home screen" banner. Dismissal
   // lasts for the session only (so a future visit can still offer it).
@@ -431,9 +436,12 @@ export default function App() {
   }, []);
 
   // Global desktop shortcut: "N" opens the quick-add dialog.
-  // Ignored when the user is typing inside an input/textarea/select/dialog/contenteditable.
+  // Ignored while typing, while another dialog is open, and while the command
+  // palette is up (its input would satisfy the editing check, but the close
+  // button would not — so gate on the state instead).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (paletteOpen) return;
       if (isEditingElement(document.activeElement)) return;
       if (e.key.toLowerCase() === 'n') {
         e.preventDefault();
@@ -442,7 +450,29 @@ export default function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  }, [paletteOpen]);
+
+  // Command palette: Ctrl (Cmd on macOS) + K.
+  //
+  // Deliberately works while typing in an input — jumping somewhere without
+  // leaving the field you are in is half the point of a palette — but it never
+  // stacks a second modal on top of an open dialog.
+  useEffect(() => {
+    const anotherDialogOpen =
+      dialogEvent !== null || dialogTask !== null || quickAddOpen || settingsOpen;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() !== 'k') return;
+      if (!e.metaKey && !e.ctrlKey) return;
+      if (e.altKey) return;
+      e.preventDefault();
+      // Opening over another dialog would trap focus behind a second modal, so
+      // only the closing half of the toggle is allowed in that case.
+      if (anotherDialogOpen && !paletteOpen) return;
+      setPaletteOpen((open) => !open);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [dialogEvent, dialogTask, quickAddOpen, settingsOpen, paletteOpen]);
 
   // Persist automatically whenever the data changes. While the state still
   // refers to the initial dataset (mock or loaded) nothing has been modified
@@ -610,7 +640,7 @@ export default function App() {
   // dialog is open.
   useEffect(() => {
     const dialogOpen =
-      dialogEvent !== null || dialogTask !== null || quickAddOpen || settingsOpen;
+      dialogEvent !== null || dialogTask !== null || quickAddOpen || settingsOpen || paletteOpen;
     if (dialogOpen) return;
 
     const onKey = (e: KeyboardEvent) => {
@@ -653,7 +683,7 @@ export default function App() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view, dialogEvent, dialogTask, quickAddOpen, settingsOpen]);
+  }, [view, dialogEvent, dialogTask, quickAddOpen, settingsOpen, paletteOpen]);
 
   const handleEventChange = (id: string, start: Date, end: Date) => {
     // Smart buffers: when dragging an event, keep it clear of its neighbours.
@@ -877,6 +907,67 @@ export default function App() {
   /** Overdue subset of the open tasks — surfaced so nothing quietly slips. */
   const overdueTaskCount = tasks.filter((t) => isOverdue(t)).length;
 
+  /**
+   * The "Actions" section of the command palette. Declared here rather than at
+   * module scope because every `run` closes over this render's handlers, and
+   * after them so none of the references is a TDZ violation.
+   */
+  const paletteActions: CommandItem[] = [
+    { id: 'action:today', group: 'action', title: 'Go to today', hint: 'T', run: goToday },
+    {
+      id: 'action:view-day',
+      group: 'action',
+      title: 'Switch to day view',
+      hint: 'D',
+      run: () => setView('day'),
+    },
+    {
+      id: 'action:view-week',
+      group: 'action',
+      title: 'Switch to week view',
+      hint: 'W',
+      run: () => setView('week'),
+    },
+    {
+      id: 'action:view-month',
+      group: 'action',
+      title: 'Switch to month view',
+      hint: 'M',
+      run: () => setView('month'),
+    },
+    {
+      id: 'action:new-task',
+      group: 'action',
+      title: 'Add a new task',
+      hint: 'N',
+      run: handleNewTask,
+    },
+    {
+      id: 'action:new-event',
+      group: 'action',
+      title: 'Add a new event at 09:00 today',
+      run: () => handleSlotClick(startOfDay(now), 9 * 60),
+    },
+    {
+      id: 'action:settings',
+      group: 'action',
+      title: 'Open settings',
+      run: () => setSettingsOpen(true),
+    },
+    {
+      id: 'action:sync',
+      group: 'action',
+      title: 'Sync schedule now',
+      run: () => void sync.syncNow(),
+    },
+    {
+      id: 'action:reload',
+      group: 'action',
+      title: 'Reload from server',
+      run: () => void handleReloadFromServer(),
+    },
+  ];
+
   return (
     <div
       className={`app with-tasks${isMobile ? ' mobile' : ''}${loading ? ' loading' : ''}${
@@ -919,6 +1010,7 @@ export default function App() {
             isMobile={isMobile}
             onSettings={() => setSettingsOpen(true)}
             onReload={handleReloadFromServer}
+            onSearch={() => setPaletteOpen(true)}
           />
           <NextUp events={events} now={now} />
           {view === 'month' ? (
@@ -1043,6 +1135,15 @@ export default function App() {
             try { localStorage.setItem('calendar-app/bufferMinutes', String(min)); } catch {/* ignore */}
           }}
           onClose={() => setSettingsOpen(false)}
+        />
+      )}
+      {paletteOpen && (
+        <CommandPalette
+          onClose={() => setPaletteOpen(false)}
+          actions={paletteActions}
+          events={events}
+          tasks={tasks}
+          now={now}
         />
       )}
       {pwaState === 'available' && !installDismissed && (

@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, RefreshCw, Settings as SettingsIcon } from 'lucide-react';
+import { ChevronLeft, ChevronRight, RefreshCw, Search, Settings as SettingsIcon } from 'lucide-react';
 import { formatDayLabel, formatDayNumber, formatMonthLabel, formatWeekRange, isSameDay, isSameMonth } from './lib';
 import type { CalendarView } from './types';
 import type { SyncState } from '../integrations/useScheduleSync';
@@ -21,6 +21,8 @@ interface Props {
   onSettings?: () => void;
   /** Reloads events/tasks/feedUrl from the server (source of truth across devices) */
   onReload?: () => void;
+  /** Opens the command palette. Desktop only — phones have no keyboard for the shortcut. */
+  onSearch?: () => void;
   /** Phone layout hint (from the app's single media query listener) */
   isMobile?: boolean;
 }
@@ -63,6 +65,7 @@ export function CalendarToolbar({
   isMobile,
   onSettings,
   onReload,
+  onSearch,
 }: Props) {
   // The month grid always spills into the neighbouring months, so "am I on the
   // current period?" has to be a month comparison rather than a day lookup —
@@ -129,6 +132,16 @@ export function CalendarToolbar({
             <RefreshCw size={14} className={syncing ? 'spin' : ''} />
             {/* Icon-only on phones — "Syncing…" would overflow the row. */}
             {!isMobile && <span>{syncing ? 'Syncing…' : 'Sync'}</span>}
+          </button>
+        )}
+        {onSearch && !isMobile && (
+          <button
+            className="toolbar-btn icon-only"
+            onClick={onSearch}
+            title="Search and commands (Ctrl/Cmd + K)"
+            aria-label="Search and commands"
+          >
+            <Search size={16} />
           </button>
         )}
         {onSettings && (
