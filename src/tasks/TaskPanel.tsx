@@ -195,7 +195,7 @@ export function TaskPanel({ tasks, onToggle, onTaskClick, onNewTask, onTaskDragS
         </button>
       )}
       {showScratchpad && (
-        <div className="pomodoro-section">
+        <div className="pomodoro-section scratchpad-section">
           <button
             className="btn subtle section-toggle"
             onClick={() => setShowScratchpad(false)}

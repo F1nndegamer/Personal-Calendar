@@ -894,6 +894,13 @@ input[type='time'] {
   background: var(--bg);
   border-right: 1px solid var(--border-subtle);
   min-height: 0;
+  /* Last-resort escape hatch. The task list absorbs the pressure, so this
+     normally never scrolls; it only comes into play when even the pinned
+     parts (header, toggles, both expanded sections, footer) are taller than
+     the panel — a window too short for that scrolls the panel rather than
+     hiding the footer below the fold. */
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .calendar-pane {
@@ -1158,17 +1165,15 @@ input[type='time'] {
 }
 
 /*
- * The task list is the one part of the panel that is meant to scroll, so it is
- * also the one that absorbs the pressure when the panel is too short.
- *
- * `flex: 1 1 auto` (instead of `flex: 1`) makes its *content* the shrink basis,
- * so a long list gives up height proportionally, while a short list still grows
- * into all the leftover space. `min-height: 0` is the part that is easy to miss:
- * without it a flex item refuses to shrink below its content size, and the
- * sections below (pomodoro, scratchpad) get shoved out of the panel instead.
+ * The task list is the only part of the panel that is allowed to give up
+ * space, because it is the only one that can scroll. A zero shrink-basis
+ * (`1 1 0%`) means it absorbs the entire deficit on its own, and
+ * `min-height: 0` is what actually allows it to shrink below its content —
+ * without it a flex item keeps its content height and shoves everything
+ * below it (pomodoro, scratchpad, footer) out of the panel instead.
  */
 .task-list {
-  flex: 1 1 auto;
+  flex: 1 1 0%;
   min-height: 0;
   overflow-y: auto;
   padding: 10px;
@@ -1348,13 +1353,14 @@ input[type='time'] {
 /*
  * The expanded pomodoro / scratchpad boxes.
  *
- * They are flex siblings of the task list, so on a short monitor they are the
- * part that has to give way. Two rules make that safe:
- *   - `min-height: 0` lets the box actually shrink (see the task-list note),
- *   - `overflow-y: auto` means the content that no longer fits is *scrollable*
- *     instead of overflowing and being painted over by the next sibling.
- * Without these, a squeezed pomodoro was cut in half by the scratchpad below
- * it and the panel footer disappeared off the bottom of the panel.
+ * They hold fixed-size content (a timer, a textarea) that cannot reflow, so
+ * they are pinned at their natural height (`flex: 0 0 auto`) and the task list
+ * above absorbs any shortfall instead. Shrinking these is what used to slice
+ * the pomodoro in half: the box got shorter than its content, the content
+ * simply overflowed (nothing scrolled it), and the next sibling painted over
+ * the bottom of the timer. The overflow rule stays as a safety net for the
+ * one case that can still outgrow the panel — a scratchpad textarea the user
+ * dragged very tall.
  */
 .pomodoro-section {
   display: flex;
@@ -1365,11 +1371,34 @@ input[type='time'] {
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--surface);
+  flex: 0 0 auto;
   min-height: 0;
   overflow-y: auto;
   /* Stop a scroll that runs out of room inside this box from scrolling the
      page behind it. */
   overscroll-behavior: contain;
+}
+
+/*
+ * The scratchpad is the one extra that may shrink, because a textarea is the
+ * one thing here that copes with being short: its text scrolls *inside* the
+ * field, which is what textareas are for. The timer has no such luxury — a
+ * half-height pomodoro is just a broken pomodoro — so it stays whole and the
+ * list gives up its space first (see .task-list), then this box does.
+ */
+.pomodoro-section.scratchpad-section {
+  flex: 0 1 auto;
+  overflow: hidden;
+}
+
+.scratchpad-section .scratchpad {
+  min-height: 0;
+}
+
+.scratchpad-section .scratchpad-input {
+  /* Follow the box down instead of overflowing it. */
+  flex: 0 1 auto;
+  min-height: 40px;
 }
 
 /*
@@ -1459,7 +1488,11 @@ input[type='time'] {
 
 .scratchpad-input {
   width: 100%;
-  min-height: 120px;
+  /* An explicit height (instead of only a min-height) is what lets the field
+     shrink with its section when the panel is tight: the textarea then scrolls
+     its own text, which is how a textarea is meant to cope. */
+  height: 120px;
+  min-height: 40px;
   /* `resize: vertical` is kept (dragging the corner is the point of a
      scratchpad), but a drag can no longer make the panel taller than the
      window — that is what used to shove the footer off-screen for good. */
@@ -1538,7 +1571,8 @@ input[type='time'] {
   }
 
   .scratchpad-input {
-    min-height: 72px;
+    height: 72px;
+    min-height: 40px;
   }
 
   .task-panel-footer {
