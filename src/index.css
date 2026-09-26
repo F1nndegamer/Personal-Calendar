@@ -1033,6 +1033,9 @@ input[type='time'] {
   gap: 8px;
   padding: 10px 14px;
   border-bottom: 1px solid var(--border-subtle);
+  /* Pinned: the panel is a flex column, so every sibling must be able to give
+     up space instead (see the task list / .pomodoro-section notes below). */
+  flex-shrink: 0;
 }
 
 .task-panel-header h2 {
@@ -1154,8 +1157,19 @@ input[type='time'] {
   padding: 5px 10px;
 }
 
+/*
+ * The task list is the one part of the panel that is meant to scroll, so it is
+ * also the one that absorbs the pressure when the panel is too short.
+ *
+ * `flex: 1 1 auto` (instead of `flex: 1`) makes its *content* the shrink basis,
+ * so a long list gives up height proportionally, while a short list still grows
+ * into all the leftover space. `min-height: 0` is the part that is easy to miss:
+ * without it a flex item refuses to shrink below its content size, and the
+ * sections below (pomodoro, scratchpad) get shoved out of the panel instead.
+ */
 .task-list {
-  flex: 1;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   padding: 10px;
   display: flex;
@@ -1331,6 +1345,17 @@ input[type='time'] {
   text-align: center;
 }
 
+/*
+ * The expanded pomodoro / scratchpad boxes.
+ *
+ * They are flex siblings of the task list, so on a short monitor they are the
+ * part that has to give way. Two rules make that safe:
+ *   - `min-height: 0` lets the box actually shrink (see the task-list note),
+ *   - `overflow-y: auto` means the content that no longer fits is *scrollable*
+ *     instead of overflowing and being painted over by the next sibling.
+ * Without these, a squeezed pomodoro was cut in half by the scratchpad below
+ * it and the panel footer disappeared off the bottom of the panel.
+ */
 .pomodoro-section {
   display: flex;
   flex-direction: column;
@@ -1340,6 +1365,11 @@ input[type='time'] {
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--surface);
+  min-height: 0;
+  overflow-y: auto;
+  /* Stop a scroll that runs out of room inside this box from scrolling the
+     page behind it. */
+  overscroll-behavior: contain;
 }
 
 /*
@@ -1355,6 +1385,9 @@ input[type='time'] {
   margin: 0 10px;
   padding: 7px 10px;
   font-size: 12.5px;
+  /* Always reachable, however tight the panel gets — the only way back out of
+     an expanded section. */
+  flex-shrink: 0;
 }
 
 .btn.subtle.section-toggle .section-toggle-chevron {
@@ -1427,6 +1460,10 @@ input[type='time'] {
 .scratchpad-input {
   width: 100%;
   min-height: 120px;
+  /* `resize: vertical` is kept (dragging the corner is the point of a
+     scratchpad), but a drag can no longer make the panel taller than the
+     window — that is what used to shove the footer off-screen for good. */
+  max-height: 32vh;
   resize: vertical;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -1465,6 +1502,48 @@ input[type='time'] {
   border-top: 1px solid var(--border-subtle);
   font-size: 11px;
   color: var(--text-faint);
+  /* The last line of the panel: pinned, so it can never be the thing that gets
+     squeezed out when the pomodoro and scratchpad are both open. */
+  flex-shrink: 0;
+}
+
+/* ---------- Short monitors: compact extras ---------- */
+/*
+ * On a laptop with a short window there is simply not enough height for a
+ * full-size pomodoro *and* a 120px scratchpad *and* a task list. Rather than
+ * let the sections fight over the leftover space (and scroll internally in
+ * tiny boxes), they get a little more compact so that everything still fits:
+ * the timer keeps its identity, everything else tightens up.
+ */
+@media (max-height: 720px) {
+  .pomodoro-card {
+    gap: 8px;
+    padding: 10px 10px;
+  }
+
+  .pomodoro-time {
+    font-size: 26px;
+  }
+
+  .pomodoro-btn {
+    width: 32px;
+    height: 32px;
+    font-size: 14px;
+  }
+
+  .pomodoro-section,
+  .scratchpad {
+    gap: 6px;
+    padding: 8px;
+  }
+
+  .scratchpad-input {
+    min-height: 72px;
+  }
+
+  .task-panel-footer {
+    padding: 6px 14px;
+  }
 }
 
 /* ---------- Task cards ---------- */
