@@ -83,8 +83,13 @@ export function createMagisterProvider(config: MagisterProviderConfig): Schedule
         const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
         let response: Response;
         try {
+          // `cache: 'no-store'` + explicit no-cache headers: every manual Sync
+          // and every periodic resync must hit the live feed. Without this the
+          // browser (and some proxies) can serve a stale cached ICS, which is
+          // exactly the "schedule changes but the site stays the same" bug.
           response = await doFetch(requestUrl.httpsUrl, {
-            headers: { Accept: 'text/calendar' },
+            headers: { Accept: 'text/calendar', 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
+            cache: 'no-store',
             signal: controller.signal,
           });
         } finally {

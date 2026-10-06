@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, RefreshCw, Search, Settings as SettingsIcon } from 'lucide-react';
+import { ChevronLeft, ChevronRight, RefreshCw, Search, Settings as SettingsIcon, Plus } from 'lucide-react';
 import { formatDayLabel, formatDayNumber, formatMonthLabel, formatWeekRange, isSameDay, isSameMonth } from './lib';
 import type { CalendarView } from './types';
 import type { SyncState } from '../integrations/useScheduleSync';
@@ -25,6 +25,8 @@ interface Props {
   onSearch?: () => void;
   /** Phone layout hint (from the app's single media query listener) */
   isMobile?: boolean;
+  /** Opens the ChatGPT import dialog */
+  onChatgptImport?: () => void;
 }
 
 function formatDate(ms: number): string {
@@ -66,6 +68,7 @@ export function CalendarToolbar({
   onSettings,
   onReload,
   onSearch,
+  onChatgptImport,
 }: Props) {
   // The month grid always spills into the neighbouring months, so "am I on the
   // current period?" has to be a month comparison rather than a day lookup —
@@ -162,6 +165,16 @@ export function CalendarToolbar({
             aria-label="Reload from server"
           >
             <RefreshCw size={16} />
+          </button>
+        )}
+        {onChatgptImport && (
+          <button
+            className="toolbar-btn icon-only"
+            onClick={onChatgptImport}
+            title="Import from ChatGPT"
+            aria-label="Import from ChatGPT"
+          >
+            <Plus size={16} />
           </button>
         )}
       </div>

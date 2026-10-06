@@ -18,6 +18,7 @@ import { useScheduleSync } from './integrations/useScheduleSync';
 import { useGooglePush } from './integrations/useGooglePush';
 import { Settings } from './components/Settings';
 import { CommandPalette } from './commandPalette/CommandPalette';
+import { ChatgptImportDialog } from './chatgptImport/ChatgptImportDialog';
 import type { CommandItem } from './commandPalette/search';
 import { loadFromServer, saveToServer } from './serverStorage';
 import { usePwaInstall } from './pwa';
@@ -178,6 +179,7 @@ export default function App() {
   const [dialogTask, setDialogTask] = useState<Task | null>(null);
   const [isNewTask, setIsNewTask] = useState(false);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
+  const [chatgptOpen, setChatgptOpen] = useState(false);
   // Command palette (Ctrl/Cmd + K). Conditionally mounted below so its query
   // and selection reset on every open.
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -640,7 +642,7 @@ export default function App() {
   // dialog is open.
   useEffect(() => {
     const dialogOpen =
-      dialogEvent !== null || dialogTask !== null || quickAddOpen || settingsOpen || paletteOpen;
+      dialogEvent !== null || dialogTask !== null || quickAddOpen || settingsOpen || paletteOpen || chatgptOpen;
     if (dialogOpen) return;
 
     const onKey = (e: KeyboardEvent) => {
@@ -676,6 +678,17 @@ export default function App() {
           e.preventDefault();
           setView('month');
           break;
+        case 'r':
+        case 'R':
+          // Manual resync: full refresh of the current range, never cached.
+          e.preventDefault();
+          void sync.syncNow();
+          break;
+        case 'g':
+        case 'G':
+          e.preventDefault();
+          setChatgptOpen(true);
+          break;
         default:
           break;
       }
@@ -683,7 +696,7 @@ export default function App() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view, dialogEvent, dialogTask, quickAddOpen, settingsOpen, paletteOpen]);
+  }, [view, dialogEvent, dialogTask, quickAddOpen, settingsOpen, paletteOpen, chatgptOpen, sync.syncNow]);
 
   const handleEventChange = (id: string, start: Date, end: Date) => {
     // Smart buffers: when dragging an event, keep it clear of its neighbours.
@@ -803,6 +816,24 @@ export default function App() {
     setTasks((prev) => [...prev, task]);
     showToast(`Added "${parsed.title}"`);
     setQuickAddOpen(false);
+  };
+
+  const handleChatgptImport = (importedEvents: CalendarEvent[]) => {
+    setEvents((prev) => {
+      const owned = new Set(prev.map((e) => e.externalId).filter((id): id is string => typeof id === 'string'));
+      const fresh = importedEvents.filter((e) => !e.externalId || !owned.has(e.externalId));
+      if (fresh.length === 0) {
+        showToast('Already imported — no new events.');
+        return prev;
+      }
+      if (fresh.length < importedEvents.length) {
+        showToast(`Imported ${fresh.length} new event${fresh.length !== 1 ? 's' : ''} (${importedEvents.length - fresh.length} already present).`);
+      } else {
+        showToast(`Imported ${fresh.length} event${fresh.length !== 1 ? 's' : ''}.`);
+      }
+      return [...prev, ...fresh];
+    });
+    setChatgptOpen(false);
   };
 
   const handleTaskClick = (task: Task) => {
@@ -958,7 +989,15 @@ export default function App() {
       id: 'action:sync',
       group: 'action',
       title: 'Sync schedule now',
+      hint: 'R',
       run: () => void sync.syncNow(),
+    },
+    {
+      id: 'action:chatgpt-import',
+      group: 'action',
+      title: 'Import day schedule from ChatGPT',
+      hint: 'G',
+      run: () => setChatgptOpen(true),
     },
     {
       id: 'action:reload',
@@ -1011,6 +1050,7 @@ export default function App() {
             onSettings={() => setSettingsOpen(true)}
             onReload={handleReloadFromServer}
             onSearch={() => setPaletteOpen(true)}
+            onChatgptImport={() => setChatgptOpen(true)}
           />
           <NextUp events={events} now={now} />
           {view === 'month' ? (
@@ -1100,6 +1140,13 @@ export default function App() {
           open={quickAddOpen}
           onClose={() => setQuickAddOpen(false)}
           onAddTask={handleQuickAdd}
+        />
+            )}
+      {chatgptOpen && (
+        <ChatgptImportDialog
+          day={anchor}
+          onImport={handleChatgptImport}
+          onClose={() => setChatgptOpen(false)}
         />
       )}
       {settingsOpen && (

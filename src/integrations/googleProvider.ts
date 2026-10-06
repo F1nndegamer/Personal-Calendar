@@ -47,7 +47,8 @@ export function createGoogleProvider(config: GoogleProviderConfig = {}): Schedul
         let response: Response;
         try {
           response = await doFetch(`/api/google/events?${params.toString()}`, {
-            headers: { Accept: 'application/json' },
+            headers: { Accept: 'application/json', 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
+            cache: 'no-store',
             signal: controller.signal,
           });
         } catch (err) {

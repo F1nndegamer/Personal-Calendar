@@ -242,5 +242,20 @@ export function useScheduleSync(options: UseScheduleSyncOptions): ScheduleSync {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Periodic automatic resync — every 15 minutes.
+  // This ensures schedule changes are picked up even when navigation doesn't
+  // extend the synced range. The `configured` check lives *inside* the
+  // callback (not the effect guard): at mount the providers may not be
+  // registered yet, and a mount-time `false` would otherwise kill the timer
+  // forever. `syncNow` also self-guards while a sync is already running.
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (!getScheduleProvidersInfo().configured) return;
+      void syncNow();
+    }, 15 * 60 * 1000); // 15 minutes
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [syncNow]);
+
   return { state, syncNow, syncIfNeeded, configured: getScheduleProvidersInfo().configured };
 }

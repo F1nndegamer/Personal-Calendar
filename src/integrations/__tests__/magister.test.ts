@@ -165,6 +165,21 @@ describe('createMagisterProvider', () => {
     const result = await provider.fetchSchedule(RANGE);
     expect(result.error?.code).toBe('parse');
   });
+
+  it('busts the HTTP cache so every resync hits the live feed', async () => {
+    let init: RequestInit | undefined;
+    const provider = createMagisterProvider({
+      feedUrl: 'https://calendar.magister.net/api/icalendar/feeds/x',
+      fetchImpl: (async (_input: string | URL | Request, opts?: RequestInit) => {
+        init = opts;
+        return okIcsResponse();
+      }) as typeof fetch,
+    });
+    await provider.fetchSchedule(RANGE);
+    expect(init?.cache).toBe('no-store');
+    const headers = new Headers(init?.headers);
+    expect(headers.get('Cache-Control')).toBe('no-cache');
+  });
 });
 
 // ---------------------------------------------------------------- webcal handling
