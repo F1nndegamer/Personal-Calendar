@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useState } from 'react';
 import { X } from 'lucide-react';
-import { APP_VERSION } from '../version';
+import { APP_VERSION, VERSION_HISTORY } from '../version';
 import { useDialogA11y } from '../hooks/useDialogA11y';
 import { cachedSession, lockNow } from '../access';
 import { refreshGoogleAvailability, resetGoogleAvailabilityCache } from '../integrations';
@@ -49,6 +49,9 @@ export function Settings({
   const [value, setValue] = useState(feedUrl);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  // Changelog: collapsed by default so the dialog stays compact; the current
+  // version line is always visible, history expands on demand.
+  const [historyOpen, setHistoryOpen] = useState(false);
   // Whether the server has a password configured. AppGate already asked, so
   // the answer is cached — no request needed just to render this button.
   const [lockEnabled, setLockEnabled] = useState(() => cachedSession()?.required === true);
@@ -408,6 +411,36 @@ export function Settings({
           )}
         </div>
 
+        {/* ---------- Version history ---------- */}
+        <div className="settings-section">
+          <button
+            type="button"
+            className="version-toggle"
+            onClick={() => setHistoryOpen((open) => !open)}
+            aria-expanded={historyOpen}
+          >
+            <span className="settings-section-title version-toggle-title">Version history</span>
+            <span className="version-current">v{APP_VERSION}</span>
+            <span className={`version-chevron${historyOpen ? ' open' : ''}`} aria-hidden="true">
+              ▾
+            </span>
+          </button>
+          {historyOpen && (
+            <ol className="version-list">
+              {VERSION_HISTORY.map((entry) => (
+                <li key={entry.version} className="version-entry">
+                  <div className="version-entry-head">
+                    <span className="version-number">v{entry.version}</span>
+                    <span className={`version-level version-level-${entry.level}`}>{entry.level}</span>
+                    <span className="version-date">{entry.date}</span>
+                  </div>
+                  <p className="version-summary">{entry.summary}</p>
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
+
         <div className="dialog-footer">
           <div className="spacer" />
           {lockEnabled && (
@@ -430,9 +463,6 @@ export function Settings({
             {saving ? 'Saving…' : saved ? 'Saved!' : 'Save'}
           </button>
         </div>
-        <p style={{ fontSize: 11, color: 'var(--text-muted, #888)', textAlign: 'center', marginTop: 8 }}>
-          v{APP_VERSION}
-        </p>
       </div>
     </div>
   );

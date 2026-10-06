@@ -254,7 +254,6 @@ export function useScheduleSync(options: UseScheduleSyncOptions): ScheduleSync {
       void syncNow();
     }, 15 * 60 * 1000); // 15 minutes
     return () => clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [syncNow]);
 
   return { state, syncNow, syncIfNeeded, configured: getScheduleProvidersInfo().configured };

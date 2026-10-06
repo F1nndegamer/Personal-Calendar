@@ -136,7 +136,7 @@ export function ChatgptImportDialog({ day, onImport, onClose }: Props) {
           <div className="spacer" />
           <button className="btn" onClick={handleClose} disabled={importing}>Cancel</button>
           <button className="btn primary" onClick={handleImport} disabled={importing || !preview || preview.events.length === 0}>
-            {importing ? (<Loader2 size={16} className="spin" /> Importing…) : 'Import events'}
+            {importing ? (<><Loader2 size={16} className="spin" /> Importing…</>) : 'Import events'}
           </button>
         </div>
       </div>
