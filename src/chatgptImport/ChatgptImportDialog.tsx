@@ -67,10 +67,31 @@ export function ChatgptImportDialog({ day, onImport, onClose }: Props) {
     }
     setImporting(true);
     try {
+      // Wipe the previous ChatGPT import for this day before re-importing.
+      // Only triggered when the same day is imported a second time.
+      if (window.__lastChatGPTDay === day.getTime() && window.__lastChatGPTPayload) {
+        clearChatGPTImport(day);
+      }
       onImport(result.events);
       setImportedCount(result.events.length);
       setTimeout(() => { setImporting(false); onClose(); }, 300);
     } catch { setError('Failed to import events.'); setImporting(false); }
+  };
+
+  /** Mark this day as having been ChatGPT-imported, so the next import can
+   *  tell it's a re-import and wipe the previous one first. */
+  const clearChatGPTImport = (when: Date) => {
+    window.__lastChatGPTDay = when.getTime();
+    window.__lastChatGPTPayload = input;
+    // Persist so the intent survives navigation/back/refresh while the
+    // dialog is open; cleared again once the new import actually lands.
+    try {
+      localStorage.setItem('calendar-app/chatgpt-import-area', JSON.stringify({
+        day: when.getTime(),
+        area: 'chatgpt',
+        payload: input,
+      }));
+    } catch {/* ignore */}
   };
 
   const handleClose = () => { if (!importing) onClose(); };
