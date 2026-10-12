@@ -12,6 +12,11 @@
  *                                  unless WEBHOOK_TOKEN is set)
  *   GET  /api/v1/calendar?days=N → read-only device feed for the ESP32 wall
  *                                  calendar (Bearer DEVICE_TOKEN when set)
+ *   GET    /api/v1/tasks         → list tasks (Bearer DEVICE_TOKEN when set)
+ *   POST   /api/v1/tasks         → create a task (idempotent by id)
+ *   PATCH  /api/v1/tasks?id=X    → update a task (optional ?baseUpdatedAt=TS
+ *                                  for optimistic-concurrency 409s)
+ *   DELETE /api/v1/tasks?id=X    → delete a task (idempotent)
  *   GET  /api/google/status      → Google connection + calendars + selection
  *   GET  /api/google/login       → 302 redirect to Google OAuth consent
  *   GET  /api/google/callback    → token exchange, redirect back to "/"
@@ -34,6 +39,7 @@ import { validateProxyUrl } from './proxyCore.js';
 import { readStorage, writeStorage } from './storage.js';
 import { accessEnabled, clearCookieHeader, clearFailures, clientIp, isThrottled, issueSession, readUnlockCookie, recordFailure, requiresUnlock, sessionValid, unlockCookieHeader, verifyPassword, SESSION_TTL_MS, } from './access.js';
 import { handleDeviceCalendarRequest, isDeviceCalendarPath } from './deviceCalendar.js';
+import { handleDeviceTasksRequest, isDeviceTasksPath } from './deviceTasks.js';
 import { handleGoogleRequest, isGooglePath } from './googleRoutes.js';
 import { appendWebhookTask, parseWebhookTask, tokenMatches, } from './webhook.js';
 const HOST = process.env.HOST || '127.0.0.1';
@@ -193,7 +199,8 @@ export async function handleWebhookTaskRequest(req, res, url) {
         }
     });
 }
-/** Whether the request reached us over TLS (directly or via Nginx). */
+/**
+ * Whether the request reached us over TLS (directly or via Nginx). */
 function isSecureRequest(req) {
     const proto = req.headers['x-forwarded-proto'];
     const value = (Array.isArray(proto) ? proto[0] : proto)?.split(',')[0]?.trim().toLowerCase();
@@ -321,6 +328,10 @@ export async function handleRequest(req, res) {
     }
     if (path === '/api/v1/calendar' || isDeviceCalendarPath(url)) {
         handleDeviceCalendarRequest(req, res, url);
+        return;
+    }
+    if (isDeviceTasksPath(url)) {
+        await handleDeviceTasksRequest(req, res, url);
         return;
     }
     if (isGooglePath(url)) {
