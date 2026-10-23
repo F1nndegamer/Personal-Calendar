@@ -66,7 +66,7 @@ export function getScheduleProvidersInfo(): {
     providers.push(
       createMagisterProvider({
         feedUrl: feedUrl.trim(),
-        proxyBaseUrl: (import.meta.env.VITE_SCHEDULE_PROXY_URL as string | undefined)?.trim() || undefined,
+        proxyBaseUrl: (import.meta.env.VITE_SCHEDULE_PROXY_URL as string | undefined)?.trim() || '/ics',
       }),
     );
   }

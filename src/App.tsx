@@ -136,6 +136,7 @@ function getCurrentFeedUrl(): string | null {
 }
 
 export default function App() {
+  const syncRef = useRef<ReturnType<typeof useScheduleSync> | null>(null);
   // Whether we've finished loading the initial dataset. The first render
   // shows a brief loading state so we don't flash mock/empty data before
   // the server has had a chance to respond.
@@ -338,7 +339,13 @@ export default function App() {
         if (remote) {
           if (remote.events.length > 0) setEvents(remote.events);
           if (remote.tasks.length > 0) setTasks(remote.tasks);
-          if (remote.feedUrl) setFeedUrl(remote.feedUrl);
+          if (remote.feedUrl) {
+            setFeedUrl(remote.feedUrl);
+            try {
+              localStorage.setItem('calendar-app/feedUrl', remote.feedUrl);
+            } catch {/* ignore */}
+            if (syncRef.current?.configured) void syncRef.current.syncNow();
+          }
         }
       } catch {
         // Server unreachable — local data is the best we have
@@ -387,7 +394,12 @@ export default function App() {
       if (remote) {
         if (remote.events.length > 0) setEvents(remote.events);
         if (remote.tasks.length > 0) setTasks(remote.tasks);
-        if (remote.feedUrl) setFeedUrl(remote.feedUrl);
+        if (remote.feedUrl) {
+          setFeedUrl(remote.feedUrl);
+          try {
+            localStorage.setItem('calendar-app/feedUrl', remote.feedUrl);
+          } catch {/* ignore */}
+        }
         showToast('Reloaded from server.');
       } else {
         showToast('Server unreachable — using local data.');
@@ -531,6 +543,8 @@ export default function App() {
       to: addYears(anchor, 10),
     }),
   });
+
+  syncRef.current = sync;
 
   // On every navigation (anchor changes), call syncIfNeeded. This extends
   // the synced coverage whenever the visible range grows. The hook itself
