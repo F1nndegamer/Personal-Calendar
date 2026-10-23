@@ -410,7 +410,7 @@ export async function handleDeviceTasksRequest(
   url: string,
 ): Promise<void> {
   const expected = process.env.DEVICE_TOKEN;
-  if (expected) {
+  if (!expected) {
     json(res, 404, { ok: false, error: 'Not Found' });
     return;
   }

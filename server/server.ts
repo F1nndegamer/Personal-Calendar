@@ -134,7 +134,11 @@ export async function handleIcsRequest(
   const timeout = setTimeout(() => controller.abort(), 30_000);
   try {
     upstreamResponse = await fetch(validation.httpsUrl, {
-      headers: { Accept: 'text/calendar' },
+      headers: {
+        Accept: 'text/calendar',
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      },
       signal: controller.signal,
     });
   } catch (err) {
