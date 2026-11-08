@@ -8,6 +8,10 @@
  *   GET  /ics?url=…              → proxies to Magister
  *   GET  /api/storage            → returns { events, tasks, feedUrl }
  *   PUT  /api/storage            → saves { events, tasks, feedUrl }
+ *   GET  /api/calendar.ics       → iCalendar feed of the stored events
+ *                                  (public, no session required — for
+ *                                  subscribing from Google Calendar, Apple
+ *                                  Calendar, Outlook …)
  *   POST /api/webhook/task       → appends a task (Bearer token; disabled
  *                                  unless WEBHOOK_TOKEN is set)
  *   GET  /api/v1/calendar?days=N → read-only device feed for the ESP32 wall
@@ -54,6 +58,7 @@ import {
 } from './access.js';
 import { handleDeviceCalendarRequest, isDeviceCalendarPath } from './deviceCalendar.js';
 import { handleDeviceTasksRequest, isDeviceTasksPath } from './deviceTasks.js';
+import { buildIcs, type IcsEventInput } from './icsExport.js';
 import { handleGoogleRequest, isGooglePath } from './googleRoutes.js';
 import {
   appendWebhookTask,
@@ -169,6 +174,29 @@ export async function handleIcsRequest(
   const body = await upstreamResponse.text();
   res.writeHead(200, { 'Content-Type': contentType, 'Cache-Control': 'no-store' });
   res.end(body);
+}
+
+/**
+ * GET /api/calendar.ics — iCalendar feed of the locally stored events.
+ * Public (no session): calendar services fetch subscription URLs anonymously.
+ */
+async function handleCalendarIcsRequest(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+): Promise<void> {
+  if (req.method !== 'GET') {
+    res.writeHead(405, { 'Content-Type': 'text/plain', Allow: 'GET' });
+    res.end('Method Not Allowed');
+    return;
+  }
+  const data = readStorage();
+  const events = (Array.isArray(data.events) ? data.events : []) as IcsEventInput[];
+  const ics = buildIcs(events);
+  res.writeHead(200, {
+    'Content-Type': 'text/calendar; charset=utf-8',
+    'Cache-Control': 'no-store',
+  });
+  res.end(ics);
 }
 
 /**
@@ -397,6 +425,11 @@ export async function handleRequest(
 
   if (path === '/api/v1/calendar' || isDeviceCalendarPath(url)) {
     handleDeviceCalendarRequest(req, res, url);
+    return;
+  }
+
+  if (path === '/api/calendar.ics') {
+    await handleCalendarIcsRequest(req, res);
     return;
   }
 

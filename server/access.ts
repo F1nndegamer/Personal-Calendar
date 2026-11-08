@@ -43,7 +43,14 @@ const FAILURE_WINDOW_MS = 15 * 60_000;
 const BLOCK_MS = 5 * 60_000;
 
 /** Paths that stay reachable without a session (see the module comment). */
-const PUBLIC_PATHS = new Set(['/api/session', '/api/unlock', '/api/lock']);
+const PUBLIC_PATHS = new Set([
+  '/api/session',
+  '/api/unlock',
+  '/api/lock',
+  // Calendar services fetch subscription URLs anonymously and cannot present
+  // a session cookie, so the ICS export is public by design.
+  '/api/calendar.ics',
+]);
 /** Prefixes that authenticate with their own Bearer token instead. */
 const TOKEN_PATHS = ['/api/webhook/', '/api/v1/'];
 

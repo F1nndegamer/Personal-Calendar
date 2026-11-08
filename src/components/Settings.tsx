@@ -56,6 +56,22 @@ export function Settings({
   // the answer is cached — no request needed just to render this button.
   const [lockEnabled, setLockEnabled] = useState(() => cachedSession()?.required === true);
   const titleId = useId();
+  const [copied, setCopied] = useState(false);
+  // The public subscription URL — reachable without a session so calendar
+  // services (Google, Apple, Outlook) can fetch it anonymously.
+  const subscriptionUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/api/calendar.ics`;
+
+  const copySubscriptionUrl = async () => {
+    if (!subscriptionUrl) return;
+    try {
+      await navigator.clipboard.writeText(subscriptionUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard unavailable — the URL remains selectable in the field.
+    }
+  };
+
   // Focus trap + `Escape` + focus restore. Initial focus stays with the
   // first-input effect below (plus text select for fast URL replacement).
   const panelRef = useDialogA11y<HTMLDivElement>(onClose);
@@ -195,6 +211,35 @@ export function Settings({
           The URL is stored locally in your browser and on the server
           (for cross-device sync).
         </p>
+
+        {/* ---------- Calendar subscription URL ---------- */}
+        <div className="settings-section">
+          <span className="settings-section-title">Subscribe to this calendar</span>
+          <label className="field">
+            <span>Calendar URL</span>
+            <div className="url-copy">
+              <input
+                type="text"
+                readOnly
+                value={subscriptionUrl}
+                title="Subscription URL to paste into Google Calendar, Apple Calendar or Outlook"
+              />
+              <button
+                className="btn"
+                onClick={copySubscriptionUrl}
+                disabled={copied}
+                aria-label={copied ? 'Copied!' : 'Copy subscription URL'}
+              >
+                {copied ? 'Copied!' : 'Copy'}
+              </button>
+            </div>
+          </label>
+          <p style={{ fontSize: 12, color: 'var(--text-muted, #888)', marginTop: -4 }}>
+            Paste this URL into Google Calendar, Apple Calendar or Outlook to see
+            your events there. The feed is public — anyone with the URL can read
+            your events.
+          </p>
+        </div>
 
         {/* ---------- Google Calendar ---------- */}
         <div className="settings-section">

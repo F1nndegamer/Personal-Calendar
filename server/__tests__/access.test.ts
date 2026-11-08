@@ -233,6 +233,8 @@ describe('requiresUnlock', () => {
     expect(requiresUnlock('/api/google/callback')).toBe(false);
     expect(requiresUnlock('/api/webhook/task')).toBe(false);
     expect(requiresUnlock('/api/v1/calendar')).toBe(false);
+    // The ICS export is public so calendar services can fetch it anonymously.
+    expect(requiresUnlock('/api/calendar.ics')).toBe(false);
   });
 });
 

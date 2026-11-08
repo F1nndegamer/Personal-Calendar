@@ -14,7 +14,7 @@
  */
 
 /** The current published version (semver: MAJOR.MINOR.PATCH). */
-export const APP_VERSION = '1.3.2';
+export const APP_VERSION = '1.4.0';
 
 /** How large a change set was. Drives which semver field is incremented. */
 export type BumpLevel = 'major' | 'minor' | 'patch';
@@ -36,6 +36,12 @@ export interface VersionEntry {
  * `APP_VERSION` — `src/__tests__/version.test.ts` enforces this.
  */
 export const VERSION_HISTORY: readonly VersionEntry[] = [
+  {
+    version: '1.4.0',
+    date: '2026-11-08',
+    level: 'minor',
+    summary: 'Add public iCalendar export URL so the calendar can be imported to other sites',
+  },
   {
     version: '1.3.2',
     date: '2026-10-23',

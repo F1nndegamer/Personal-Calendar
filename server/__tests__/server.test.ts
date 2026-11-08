@@ -5,6 +5,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { handleRequest } from '../server.js';
+import { writeStorage } from '../storage.js';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 /**
@@ -338,5 +339,98 @@ describe('GET /ics', () => {
     const res = makeRes();
     await handleRequest(makeReq(`/ics?url=${VALID_URL}`), res);
     expect(res.statusCode).toBe(502);
+  });
+});
+
+/* ---------- GET /api/calendar.ics ---------- */
+
+describe('GET /api/calendar.ics', () => {
+  const base = { events: [], tasks: [], feedUrl: null } as const;
+
+  it('returns 200 text/calendar with the stored events', async () => {
+    writeStorage({
+      ...base,
+      events: [
+        {
+          id: 'ev-1',
+          title: 'Wiskunde B',
+          description: 'Room 101, mr. Jansen',
+          start: '2026-11-09T08:00:00Z',
+          end: '2026-11-09T09:00:00Z',
+          room: '101',
+          category: 'School',
+        },
+      ],
+    });
+    const res = makeRes();
+    await handleRequest(makeReq('/api/calendar.ics', 'GET'), res);
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toContain('text/calendar');
+    const body = res.body();
+    expect(body).toContain('BEGIN:VCALENDAR');
+    expect(body).toContain('END:VCALENDAR');
+    expect(body).toContain('SUMMARY:Wiskunde B');
+    expect(body).toContain('DESCRIPTION:Room 101\\, mr. Jansen');
+    expect(body).toContain('LOCATION:101');
+    expect(body).toContain('DTSTART:20261109T080000Z');
+    expect(body).toContain('DTEND:20261109T090000Z');
+    expect(body).toContain('UID:ev-1@personal-calendar.app');
+    expect(body).toContain('DTSTAMP:');
+  });
+
+  it('returns a valid empty feed when there are no events', async () => {
+    writeStorage(base);
+    const res = makeRes();
+    await handleRequest(makeReq('/api/calendar.ics', 'GET'), res);
+    expect(res.statusCode).toBe(200);
+    const body = res.body();
+    expect(body).toContain('BEGIN:VCALENDAR');
+    expect(body).toContain('END:VCALENDAR');
+    expect(body).not.toContain('VEVENT');
+  });
+
+  it('escapes commas, semicolons and backslashes in the summary', async () => {
+    writeStorage({
+      ...base,
+      events: [{ id: 'ev-2', title: 'A; B, C\\D', start: '2026-11-09T08:00:00Z', end: '2026-11-09T09:00:00Z' }],
+    });
+    const res = makeRes();
+    await handleRequest(makeReq('/api/calendar.ics', 'GET'), res);
+    expect(res.body()).toContain('SUMMARY:A\\; B\\, C\\\\D');
+  });
+
+  it('renders an all-day event as a VALUE=DATE', async () => {
+    writeStorage({
+      ...base,
+      events: [
+        { id: 'ev-3', title: 'Study day', start: '2026-11-09T00:00:00Z', end: '2026-11-10T00:00:00Z' },
+      ],
+    });
+    const res = makeRes();
+    await handleRequest(makeReq('/api/calendar.ics', 'GET'), res);
+    expect(res.body()).toContain('DTSTART;VALUE=DATE:20261109');
+    expect(res.body()).toContain('DTEND;VALUE=DATE:20261110');
+  });
+
+  it('returns 405 for POST', async () => {
+    const res = makeRes();
+    await handleRequest(makeReq('/api/calendar.ics', 'POST'), res);
+    expect(res.statusCode).toBe(405);
+    expect(res.headers['allow']).toBe('GET');
+  });
+
+  it('stays reachable without a session while the lock is enabled', async () => {
+    const prev = process.env.APP_PASSWORD;
+    vi.stubEnv('APP_PASSWORD', 's3cret');
+    try {
+      writeStorage(base);
+      const res = makeRes();
+      await handleRequest(makeReq('/api/calendar.ics', 'GET'), res);
+      expect(res.statusCode).toBe(200);
+      expect(res.body()).toContain('BEGIN:VCALENDAR');
+    } finally {
+      if (prev === undefined) delete process.env.APP_PASSWORD;
+      else process.env.APP_PASSWORD = prev;
+    }
   });
 });

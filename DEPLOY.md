@@ -455,8 +455,11 @@ How it works:
 - **Exempt on purpose:** `GET /api/session`, `POST /api/unlock`,
   `POST /api/lock` (the app needs them to ask), `GET /api/google/callback`
   (Google redirects back as a cross-site navigation, which carries no
-  `SameSite=Strict` cookie), and `/api/webhook/*` + `/api/v1/*` (the ESP32 and
-  the task webhook authenticate with `DEVICE_TOKEN` / `WEBHOOK_TOKEN`).
+  `SameSite=Strict` cookie), `/api/webhook/*` + `/api/v1/*` (the ESP32 and
+  the task webhook authenticate with `DEVICE_TOKEN` / `WEBHOOK_TOKEN`), and
+  `GET /api/calendar.ics` (the public iCalendar export — calendar services
+  such as Google Calendar, Apple Calendar and Outlook fetch it anonymously,
+  so it cannot require a session cookie).
 - **Guessing is throttled:** 8 wrong attempts from one IP within 15 minutes
   earns a 5-minute block (HTTP 429). The IP comes from the `X-Real-IP` /
   `X-Forwarded-For` headers Nginx already sets.
